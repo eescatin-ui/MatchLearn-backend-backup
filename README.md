@@ -21,6 +21,17 @@ Laravel is a web application framework with expressive, elegant syntax. We belie
 
 Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
+## Deploying to Render
+
+This repository includes a Render Blueprint and Docker setup for the Laravel API. The Blueprint is configured for the Singapore region and connects to an existing Render PostgreSQL database:
+
+1. Rotate the PostgreSQL password if it has been shared, then push the backend repository to your Git provider.
+2. Create a Blueprint in Render using `render.yaml`. It creates the `matchlearn-api` web service in Singapore and prompts for `DB_URL`; enter the existing database's **internal** PostgreSQL URL, using the rotated password.
+3. Render generates `APP_KEY`. The container runs pending migrations when it starts.
+4. Set the mobile app's `EXPO_PUBLIC_API_URL` to the API service's root URL (for example, `https://<service-name>.onrender.com`), without `/api/v1`, then rebuild/restart the Expo app.
+
+The included Blueprint uses Render's free web-service plan for testing. Free web services can spin down while idle. Free PostgreSQL databases expire after their trial period; check your existing database's plan and expiry before relying on it. Existing data from another database is not copied automatically.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
