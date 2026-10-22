@@ -179,13 +179,14 @@ class StudySessionController extends Controller
             }
 
             $isReschedulingCompleted = $session->status === 'completed';
+            $isReschedulingCancelled = $session->status === 'cancelled';
             if (
-                ! in_array($session->status, ['pending', 'confirmed', 'completed'], true)
-                || (! $isReschedulingCompleted && $session->starts_at->isPast())
+                ! in_array($session->status, ['pending', 'confirmed', 'completed', 'cancelled'], true)
+                || (! $isReschedulingCompleted && ! $isReschedulingCancelled && $session->starts_at->isPast())
             ) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Only upcoming sessions can be edited, or completed sessions can be rescheduled.',
+                    'message' => 'Only upcoming sessions can be edited, or completed and cancelled sessions can be rescheduled.',
                 ], 422);
             }
 
@@ -198,6 +199,8 @@ class StudySessionController extends Controller
 
             if ($isReschedulingCompleted) {
                 $session->reviews()->delete();
+            }
+            if ($isReschedulingCompleted || $isReschedulingCancelled) {
                 $validated['status'] = 'confirmed';
             }
 
@@ -222,14 +225,14 @@ class StudySessionController extends Controller
     {
         $session = StudySession::query()
             ->where('host_user_id', $request->user()->id)
-            ->where('status', 'completed')
+            ->whereIn('status', ['completed', 'cancelled'])
             ->findOrFail($id);
 
         $session->delete();
 
         return response()->json([
             'success' => true,
-            'message' => 'Completed study session deleted.',
+            'message' => 'Study session deleted.',
         ]);
     }
 

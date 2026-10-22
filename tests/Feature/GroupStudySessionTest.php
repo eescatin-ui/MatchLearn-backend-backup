@@ -261,4 +261,60 @@ class GroupStudySessionTest extends TestCase
             'location' => 'Study hall',
         ]);
     }
+
+    public function test_creator_can_reschedule_or_delete_cancelled_and_completed_sessions(): void
+    {
+        $host = User::factory()->create();
+        $participant = User::factory()->create();
+        $cancelledSession = StudySession::create([
+            'host_user_id' => $host->id,
+            'participant_user_id' => $participant->id,
+            'study_group_id' => null,
+            'topic' => 'Cancelled review',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->subDay()->addHour(),
+            'location' => 'Library',
+            'status' => 'cancelled',
+        ]);
+
+        $newStart = now()->addDays(2);
+        $this->actingAs($participant, 'sanctum')
+            ->deleteJson("/api/v1/sessions/{$cancelledSession->id}")
+            ->assertNotFound();
+
+        $this->actingAs($host, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$cancelledSession->id}", [
+                'topic' => 'Rescheduled review',
+                'starts_at' => $newStart->toIso8601String(),
+                'ends_at' => $newStart->copy()->addHour()->toIso8601String(),
+                'location' => 'Study hall',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'confirmed')
+            ->assertJsonPath('data.session.topic', 'Rescheduled review');
+
+        $this->actingAs($host, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$cancelledSession->id}", ['status' => 'cancelled'])
+            ->assertOk();
+        $this->actingAs($host, 'sanctum')
+            ->deleteJson("/api/v1/sessions/{$cancelledSession->id}")
+            ->assertOk();
+        $this->assertDatabaseMissing('study_sessions', ['id' => $cancelledSession->id]);
+
+        $completedSession = StudySession::create([
+            'host_user_id' => $host->id,
+            'participant_user_id' => $participant->id,
+            'study_group_id' => null,
+            'topic' => 'Completed review',
+            'starts_at' => now()->subDays(2),
+            'ends_at' => now()->subDays(2)->addHour(),
+            'location' => 'Library',
+            'status' => 'completed',
+        ]);
+
+        $this->actingAs($host, 'sanctum')
+            ->deleteJson("/api/v1/sessions/{$completedSession->id}")
+            ->assertOk();
+        $this->assertDatabaseMissing('study_sessions', ['id' => $completedSession->id]);
+    }
 }
