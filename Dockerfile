@@ -11,7 +11,7 @@ FROM php:8.3-cli-bookworm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libonig-dev libpq-dev libxml2-dev libzip-dev unzip \
     && docker-php-ext-install dom \
-    && docker-php-ext-install bcmath mbstring opcache pcntl pdo_pgsql simplexml xml xmlreader xmlwriter zip \
+    && docker-php-ext-install bcmath mbstring opcache pcntl pdo_pgsql zip \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
