@@ -14,6 +14,9 @@ use App\Http\Controllers\Api\UserReportController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
+    Route::get('profiles/{userId}/photo', [ProfileController::class, 'showPhoto'])
+        ->name('api.v1.profiles.photo');
+
     // Public auth routes
     Route::prefix('auth')->group(function () {
         Route::post('register', [AuthController::class, 'register']);

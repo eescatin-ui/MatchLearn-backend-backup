@@ -11,8 +11,8 @@ use App\Models\StudyCourse;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 
 class ProfileController extends Controller
 {
@@ -121,6 +121,28 @@ class ProfileController extends Controller
         ]);
     }
 
+    public function showPhoto(int $userId): Response
+    {
+        $profile = Profile::query()
+            ->where('user_id', $userId)
+            ->first(['profile_photo_data', 'profile_photo_mime_type']);
+
+        if (! $profile?->profile_photo_data || ! $profile->profile_photo_mime_type) {
+            abort(404, 'Profile photo not found.');
+        }
+
+        $photoData = base64_decode($profile->profile_photo_data, true);
+        if ($photoData === false) {
+            abort(500, 'Stored profile photo is invalid.');
+        }
+
+        return response($photoData, 200, [
+            'Content-Type' => $profile->profile_photo_mime_type,
+            'Cache-Control' => 'no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
     public function uploadPhoto(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -134,52 +156,25 @@ class ProfileController extends Controller
             ], 404);
         }
 
-        $path = $validated['photo']->store('profile-photos', 'public');
-        if (! $path) {
+        $photoData = file_get_contents($validated['photo']->getRealPath());
+        if ($photoData === false) {
             return response()->json([
                 'success' => false,
                 'message' => 'The profile photo could not be stored. Please try again.',
             ], 500);
         }
 
-        $previousPhotoPath = $this->storedProfilePhotoPath($profile->profile_photo_url);
-        $storageUrlPath = parse_url(Storage::disk('public')->url($path), PHP_URL_PATH);
-        if (! is_string($storageUrlPath)) {
-            Storage::disk('public')->delete($path);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'The uploaded profile photo URL could not be generated.',
-            ], 500);
-        }
-
         $profile->update([
-            'profile_photo_url' => $request->getSchemeAndHttpHost().$storageUrlPath,
+            'profile_photo_data' => base64_encode($photoData),
+            'profile_photo_mime_type' => $validated['photo']->getMimeType(),
+            'profile_photo_url' => route('api.v1.profiles.photo', ['userId' => $profile->user_id]),
         ]);
-
-        if ($previousPhotoPath && $previousPhotoPath !== $path) {
-            Storage::disk('public')->delete($previousPhotoPath);
-        }
 
         return response()->json([
             'success' => true,
             'message' => 'Profile photo uploaded successfully.',
             'data' => ['profile_photo_url' => $profile->profile_photo_url],
         ]);
-    }
-
-    private function storedProfilePhotoPath(?string $photoUrl): ?string
-    {
-        if (! $photoUrl) {
-            return null;
-        }
-
-        $path = parse_url($photoUrl, PHP_URL_PATH);
-        if (! is_string($path) || ! str_starts_with($path, '/storage/profile-photos/')) {
-            return null;
-        }
-
-        return substr($path, strlen('/storage/'));
     }
 
     private function syncAssociations(Request $request, User $user, Profile $profile): void

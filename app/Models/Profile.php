@@ -27,6 +27,8 @@ class Profile extends Model
         'learning_style_id',
         'bio',
         'profile_photo_url',
+        'profile_photo_data',
+        'profile_photo_mime_type',
         'study_topics',
         'academic_strengths',
         'academic_needs',
