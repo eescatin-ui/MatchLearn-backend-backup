@@ -36,24 +36,56 @@ class CourseCatalogTest extends TestCase
         $departments = collect($response->json('data.departments'));
 
         foreach ([
-            'College of Computing and Information Sciences',
-            'College of Engineering',
-            'College of Arts and Sciences',
+            'College of Engineering and Architecture',
+            'College of Information and Computing Sciences',
+            'College of Industrial Technology',
             'College of Teacher Education',
-            'College of Technology',
+            'College of Business and Hospitality Management',
         ] as $name) {
             $this->assertTrue($departments->contains('name', $name), "Missing SNSU Main Campus department: {$name}");
         }
 
-        $artsAndSciences = $departments->firstWhere('name', 'College of Arts and Sciences');
-        $artsPrograms = collect($artsAndSciences['programs'])->pluck('name');
-        $this->assertTrue($artsPrograms->contains('Bachelor of Science in Mathematics'));
-        $this->assertTrue($artsPrograms->contains('Bachelor of Science in Environmental Science'));
-        $this->assertTrue($artsPrograms->contains('Bachelor of Arts in English Language'));
+        $expectedPrograms = [
+            'College of Engineering and Architecture' => [
+                'Bachelor of Science in Civil Engineering (BSCE)',
+                'Bachelor of Science in Electrical Engineering (BSEE)',
+                'Bachelor of Science in Computer Engineering (BSCpE)',
+                'Bachelor of Science in Electronics Engineering (BSEC / ECE)',
+            ],
+            'College of Information and Computing Sciences' => [
+                'Bachelor of Science in Information Technology (BSIT)',
+                'Bachelor of Science in Computer Science (BSCS)',
+                'Bachelor of Science in Information Systems (BSIS)',
+            ],
+            'College of Industrial Technology' => [
+                'Bachelor of Industrial Technology (BIT) - Automotive',
+                'Bachelor of Industrial Technology (BIT) - Electrical',
+                'Bachelor of Industrial Technology (BIT) - Electronics',
+                'Bachelor of Industrial Technology (BIT) - Mechanical',
+                'Bachelor of Industrial Technology (BIT) - Drafting',
+                'Bachelor of Industrial Technology (BIT) - Civil',
+                'Bachelor of Industrial Technology (BIT) - Foods',
+                'Bachelor of Industrial Technology (BIT) - Welding and Fabrication',
+                'Bachelor of Industrial Technology (BIT) - Refrigeration and Air-Conditioning',
+                'Associate in Industrial Technology (AIT)',
+            ],
+            'College of Teacher Education' => [
+                'Bachelor of Elementary Education (BEEd)',
+                'Bachelor of Secondary Education (BSEd) - English',
+                'Bachelor of Secondary Education (BSEd) - Mathematics',
+                'Bachelor of Secondary Education (BSEd) - Science/Biological/Physical Science',
+                'Bachelor of Secondary Education (BSEd) - Filipino',
+                'Bachelor of Technical-Vocational Teacher Education (BTVTED)',
+            ],
+            'College of Business and Hospitality Management' => [
+                'Bachelor of Science in Hospitality Management (BSHM) / Hotel and Restaurant Management',
+            ],
+        ];
 
-        $technology = $departments->firstWhere('name', 'College of Technology');
-        $technologyPrograms = collect($technology['programs'])->pluck('name');
-        $this->assertTrue($technologyPrograms->contains('Bachelor of Engineering Technology'));
-        $this->assertTrue($technologyPrograms->contains('Bachelor of Science in Hospitality Management'));
+        foreach ($expectedPrograms as $departmentName => $programNames) {
+            $department = $departments->firstWhere('name', $departmentName);
+            $actualProgramNames = collect($department['programs'])->pluck('name')->all();
+            $this->assertEqualsCanonicalizing($programNames, $actualProgramNames, "Unexpected programs for {$departmentName}");
+        }
     }
 }

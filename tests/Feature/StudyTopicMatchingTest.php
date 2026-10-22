@@ -2,8 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Department;
 use App\Models\Course;
+use App\Models\Department;
 use App\Models\LearningStyle;
 use App\Models\MatchingSetting;
 use App\Models\Profile;
@@ -21,7 +21,7 @@ class StudyTopicMatchingTest extends TestCase
     public function test_students_match_by_normalized_course_code_and_complementary_needs(): void
     {
         $this->seed(DatabaseSeeder::class);
-        $department = Department::where('name', 'College of Computing and Information Sciences')->firstOrFail();
+        $department = Department::where('name', 'College of Information and Computing Sciences')->firstOrFail();
         $program = Program::where('department_id', $department->id)->firstOrFail();
         $style = LearningStyle::where('name', 'Visual')->firstOrFail();
 
@@ -65,7 +65,7 @@ class StudyTopicMatchingTest extends TestCase
     public function test_admin_matching_weights_are_applied_when_recommendations_refresh(): void
     {
         $this->seed(DatabaseSeeder::class);
-        $department = Department::where('name', 'College of Computing and Information Sciences')->firstOrFail();
+        $department = Department::where('name', 'College of Information and Computing Sciences')->firstOrFail();
         $program = Program::where('department_id', $department->id)->firstOrFail();
         $style = LearningStyle::where('name', 'Visual')->firstOrFail();
         $preferences = [
@@ -99,7 +99,7 @@ class StudyTopicMatchingTest extends TestCase
     public function test_matches_detect_shared_catalog_courses_and_explain_them(): void
     {
         $this->seed(DatabaseSeeder::class);
-        $department = Department::where('name', 'College of Computing and Information Sciences')->firstOrFail();
+        $department = Department::where('name', 'College of Information and Computing Sciences')->firstOrFail();
         $program = Program::where('department_id', $department->id)->firstOrFail();
         $style = LearningStyle::where('name', 'Visual')->firstOrFail();
         $student = $this->createStudent($department, $program, $style, [
@@ -143,7 +143,7 @@ class StudyTopicMatchingTest extends TestCase
     public function test_ge_103_matches_by_code_not_ethics_course_description(): void
     {
         $this->seed(DatabaseSeeder::class);
-        $department = Department::where('name', 'College of Computing and Information Sciences')->firstOrFail();
+        $department = Department::where('name', 'College of Information and Computing Sciences')->firstOrFail();
         $program = Program::where('department_id', $department->id)->firstOrFail();
         $style = LearningStyle::where('name', 'Visual')->firstOrFail();
         $student = $this->createStudent($department, $program, $style, [
