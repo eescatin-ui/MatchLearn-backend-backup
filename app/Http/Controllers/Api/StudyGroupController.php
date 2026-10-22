@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\StudyGroup;
 use App\Models\StudyGroupJoinRequest;
 use App\Models\StudySession;
+use App\Models\User;
 use App\Services\ActivityNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,9 @@ class StudyGroupController extends Controller
                     'avatar_color' => $group->avatar_color,
                     'schedule' => $group->schedule,
                     'description' => $group->description,
+                    'study_style' => $group->study_style,
+                    'preferred_study_time' => $group->preferred_study_time,
+                    'study_mode' => $group->study_mode,
                     'members' => $group->members_count,
                     'role' => ucfirst($group->pivot->role),
                     'created_by' => $group->created_by,
@@ -71,12 +75,15 @@ class StudyGroupController extends Controller
 
     public function discover(Request $request): JsonResponse
     {
+        $user = $request->user()->loadMissing(['profile.learningStyle', 'availabilities']);
         $groups = StudyGroup::with('creator:id,name')
+            ->withAvg('reviews', 'rating')
+            ->withCount('reviews')
             ->whereDoesntHave('members', fn ($query) => $query->where('users.id', $request->user()->id))
             ->withCount('members')
             ->latest()
             ->get()
-            ->map(function (StudyGroup $group) use ($request): array {
+            ->map(function (StudyGroup $group) use ($request, $user): array {
                 $joinRequest = $group->joinRequests()
                     ->where('user_id', $request->user()->id)
                     ->where('status', 'pending')
@@ -90,11 +97,21 @@ class StudyGroupController extends Controller
                     'avatar_color' => $group->avatar_color,
                     'schedule' => $group->schedule,
                     'description' => $group->description,
+                    'study_style' => $group->study_style,
+                    'preferred_study_time' => $group->preferred_study_time,
+                    'study_mode' => $group->study_mode,
+                    'compatibility_score' => $this->groupCompatibilityScore($group, $user),
+                    'average_rating' => $group->reviews_avg_rating === null
+                        ? null
+                        : round((float) $group->reviews_avg_rating, 1),
+                    'ratings_count' => $group->reviews_count,
                     'members' => $group->members_count,
                     'created_by' => $group->created_by,
                     'request_status' => $joinRequest ? 'pending' : null,
                 ];
-            });
+            })
+            ->sortByDesc('compatibility_score')
+            ->values();
 
         return response()->json([
             'success' => true,
@@ -110,6 +127,9 @@ class StudyGroupController extends Controller
             'course' => ['required', 'string', 'max:255'],
             'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline,construct-outline,laptop-outline,build-outline,school-outline,business-outline'],
             'avatar_color' => ['sometimes', 'required', 'string', 'in:#1a5f7a,#15803d,#7c3aed,#c2410c,#be123c,#1d4ed8'],
+            'study_style' => ['sometimes', 'nullable', 'string', 'in:Visual,Auditory,Reading/Writing,Kinesthetic'],
+            'preferred_study_time' => ['sometimes', 'nullable', 'string', 'in:Morning,Afternoon,Evening,Flexible'],
+            'study_mode' => ['sometimes', 'nullable', 'string', 'in:online,in_person,either'],
             'schedule' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
         ]);
@@ -129,6 +149,9 @@ class StudyGroupController extends Controller
                 'course' => $request->input('course'),
                 'avatar_icon' => $request->input('avatar_icon', 'book-outline'),
                 'avatar_color' => $request->input('avatar_color', '#1a5f7a'),
+                'study_style' => $request->input('study_style'),
+                'preferred_study_time' => $request->input('preferred_study_time'),
+                'study_mode' => $request->input('study_mode'),
                 'schedule' => $request->input('schedule', 'Flexible'),
                 'description' => $request->input('description'),
             ]);
@@ -147,6 +170,9 @@ class StudyGroupController extends Controller
                     'course' => $group->course,
                     'avatar_icon' => $group->avatar_icon,
                     'avatar_color' => $group->avatar_color,
+                    'study_style' => $group->study_style,
+                    'preferred_study_time' => $group->preferred_study_time,
+                    'study_mode' => $group->study_mode,
                     'schedule' => $group->schedule,
                     'description' => $group->description,
                     'members' => 1,
@@ -175,6 +201,9 @@ class StudyGroupController extends Controller
                     'course' => $group->course,
                     'avatar_icon' => $group->avatar_icon,
                     'avatar_color' => $group->avatar_color,
+                    'study_style' => $group->study_style,
+                    'preferred_study_time' => $group->preferred_study_time,
+                    'study_mode' => $group->study_mode,
                     'schedule' => $group->schedule,
                     'description' => $group->description,
                     'members' => $group->members()->count(),
@@ -416,6 +445,9 @@ class StudyGroupController extends Controller
             'description' => ['nullable', 'string'],
             'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline,construct-outline,laptop-outline,build-outline,school-outline,business-outline'],
             'avatar_color' => ['sometimes', 'required', 'string', 'in:#1a5f7a,#15803d,#7c3aed,#c2410c,#be123c,#1d4ed8'],
+            'study_style' => ['sometimes', 'nullable', 'string', 'in:Visual,Auditory,Reading/Writing,Kinesthetic'],
+            'preferred_study_time' => ['sometimes', 'nullable', 'string', 'in:Morning,Afternoon,Evening,Flexible'],
+            'study_mode' => ['sometimes', 'nullable', 'string', 'in:online,in_person,either'],
         ]);
 
         if ($validator->fails()) {
@@ -433,6 +465,9 @@ class StudyGroupController extends Controller
             'description',
             'avatar_icon',
             'avatar_color',
+            'study_style',
+            'preferred_study_time',
+            'study_mode',
         ]));
         $group->save();
 
@@ -462,5 +497,48 @@ class StudyGroupController extends Controller
             'success' => true,
             'message' => 'Group deleted successfully.',
         ]);
+    }
+
+    private function groupCompatibilityScore(StudyGroup $group, User $user): int
+    {
+        $scores = [];
+        $profile = $user->profile;
+
+        if ($group->study_style && $profile?->learningStyle?->name) {
+            $scores[] = $group->study_style === $profile->learningStyle->name ? 100 : 0;
+        }
+
+        if ($group->study_mode && $profile?->study_mode) {
+            $scores[] = $group->study_mode === $profile->study_mode
+                || $group->study_mode === 'either'
+                || $profile->study_mode === 'either'
+                    ? 100
+                    : 0;
+        }
+
+        if ($group->preferred_study_time && $user->availabilities->isNotEmpty()) {
+            $timeRanges = [
+                'Morning' => [480, 720],
+                'Afternoon' => [720, 1020],
+                'Evening' => [1020, 1260],
+                'Flexible' => [480, 1260],
+            ];
+            [$groupStart, $groupEnd] = $timeRanges[$group->preferred_study_time];
+            $hasTimeOverlap = $group->preferred_study_time === 'Flexible';
+
+            foreach ($user->availabilities as $availability) {
+                [$startHour, $startMinute] = array_map('intval', explode(':', $availability->start_time));
+                [$endHour, $endMinute] = array_map('intval', explode(':', $availability->end_time));
+                $availabilityStart = ($startHour * 60) + $startMinute;
+                $availabilityEnd = ($endHour * 60) + $endMinute;
+                if ($availabilityStart < $groupEnd && $availabilityEnd > $groupStart) {
+                    $hasTimeOverlap = true;
+                    break;
+                }
+            }
+            $scores[] = $hasTimeOverlap ? 100 : 0;
+        }
+
+        return $scores === [] ? 0 : (int) round(array_sum($scores) / count($scores));
     }
 }

@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\BuddyRequest;
+use App\Models\LearningStyle;
 use App\Models\Profile;
 use App\Models\StudyGroup;
+use App\Models\StudyGroupReview;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -21,6 +23,9 @@ class BuddyAndGroupDetailsTest extends TestCase
             'course' => 'BIO 101',
             'avatar_icon' => 'flask-outline',
             'avatar_color' => '#15803d',
+            'study_style' => 'Visual',
+            'preferred_study_time' => 'Morning',
+            'study_mode' => 'online',
         ];
 
         $groupId = $this->actingAs($owner, 'sanctum')
@@ -28,6 +33,9 @@ class BuddyAndGroupDetailsTest extends TestCase
             ->assertCreated()
             ->assertJsonPath('data.group.avatar_icon', 'flask-outline')
             ->assertJsonPath('data.group.avatar_color', '#15803d')
+            ->assertJsonPath('data.group.study_style', 'Visual')
+            ->assertJsonPath('data.group.preferred_study_time', 'Morning')
+            ->assertJsonPath('data.group.study_mode', 'online')
             ->json('data.group.id');
 
         $this->assertDatabaseHas('study_groups', [
@@ -104,11 +112,17 @@ class BuddyAndGroupDetailsTest extends TestCase
                 'description' => 'Weekly study sessions',
                 'avatar_icon' => 'calculator-outline',
                 'avatar_color' => '#7c3aed',
+                'study_style' => 'Kinesthetic',
+                'preferred_study_time' => 'Evening',
+                'study_mode' => 'in_person',
             ])
             ->assertOk()
             ->assertJsonPath('data.group.name', 'Updated study team')
             ->assertJsonPath('data.group.avatar_icon', 'calculator-outline')
-            ->assertJsonPath('data.group.avatar_color', '#7c3aed');
+            ->assertJsonPath('data.group.avatar_color', '#7c3aed')
+            ->assertJsonPath('data.group.study_style', 'Kinesthetic')
+            ->assertJsonPath('data.group.preferred_study_time', 'Evening')
+            ->assertJsonPath('data.group.study_mode', 'in_person');
 
         $this->assertDatabaseHas('study_groups', [
             'id' => $groupId,
@@ -118,7 +132,54 @@ class BuddyAndGroupDetailsTest extends TestCase
             'description' => 'Weekly study sessions',
             'avatar_icon' => 'calculator-outline',
             'avatar_color' => '#7c3aed',
+            'study_style' => 'Kinesthetic',
+            'preferred_study_time' => 'Evening',
+            'study_mode' => 'in_person',
         ]);
+    }
+
+    public function test_discover_groups_include_compatibility_and_rating(): void
+    {
+        $style = LearningStyle::create(['name' => 'Visual']);
+        $viewer = User::factory()->create();
+        Profile::create([
+            'user_id' => $viewer->id,
+            'institution' => 'SNSU',
+            'learning_style_id' => $style->id,
+            'study_mode' => 'online',
+        ]);
+        $viewer->availabilities()->create([
+            'day_of_week' => 'monday',
+            'start_time' => '08:00',
+            'end_time' => '12:00',
+        ]);
+
+        $owner = User::factory()->create();
+        $group = StudyGroup::create([
+            'created_by' => $owner->id,
+            'name' => 'Morning Visual Study',
+            'course' => 'IT 213',
+            'study_style' => 'Visual',
+            'preferred_study_time' => 'Morning',
+            'study_mode' => 'online',
+        ]);
+        StudyGroupReview::create([
+            'study_group_id' => $group->id,
+            'reviewer_user_id' => $owner->id,
+            'rating' => 4,
+        ]);
+        StudyGroupReview::create([
+            'study_group_id' => $group->id,
+            'reviewer_user_id' => $viewer->id,
+            'rating' => 5,
+        ]);
+
+        $this->actingAs($viewer, 'sanctum')
+            ->getJson('/api/v1/groups/discover')
+            ->assertOk()
+            ->assertJsonPath('data.groups.0.compatibility_score', 100)
+            ->assertJsonPath('data.groups.0.average_rating', 4.5)
+            ->assertJsonPath('data.groups.0.ratings_count', 2);
     }
 
     public function test_only_accepted_buddies_can_view_profile_and_remove_connection(): void

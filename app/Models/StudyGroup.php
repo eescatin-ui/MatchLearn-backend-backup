@@ -20,6 +20,9 @@ class StudyGroup extends Model
         'description',
         'avatar_icon',
         'avatar_color',
+        'study_style',
+        'preferred_study_time',
+        'study_mode',
     ];
 
     public function creator(): BelongsTo
