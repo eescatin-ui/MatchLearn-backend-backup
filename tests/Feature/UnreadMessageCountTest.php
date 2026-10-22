@@ -96,13 +96,15 @@ class UnreadMessageCountTest extends TestCase
         $this->actingAs($reader, 'sanctum')
             ->getJson('/api/v1/messages')
             ->assertOk()
-            ->assertJsonPath('data.unread_count', 1);
+            ->assertJsonPath('data.unread_count', 1)
+            ->assertJsonPath('data.conversations.0.unread_count', 1);
         $this->actingAs($reader, 'sanctum')
             ->getJson("/api/v1/messages/direct-conversations/{$conversation->id}")
             ->assertOk();
         $this->actingAs($reader, 'sanctum')
             ->getJson('/api/v1/messages')
             ->assertOk()
-            ->assertJsonPath('data.unread_count', 0);
+            ->assertJsonPath('data.unread_count', 0)
+            ->assertJsonPath('data.conversations.0.unread_count', 0);
     }
 }

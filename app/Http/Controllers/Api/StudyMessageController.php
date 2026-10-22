@@ -77,6 +77,12 @@ class StudyMessageController extends Controller
                     ) : '',
                     'time' => $lastMessage?->created_at->diffForHumans(),
                     'direct_conversation_id' => $conversation->id,
+                    'unread_count' => $this->unreadMessageCount(
+                        $request,
+                        'direct',
+                        $conversation->id,
+                        $conversation->messages()
+                    ),
                     'unread_sender_ids' => $this->unreadMessageSenderIds(
                         $request,
                         'direct',

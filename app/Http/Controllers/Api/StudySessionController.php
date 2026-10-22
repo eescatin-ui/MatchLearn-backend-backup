@@ -145,9 +145,10 @@ class StudySessionController extends Controller
             $allowed = $isHost
                 ? $status === 'cancelled'
                     || ($status === 'completed' && $session->status === 'confirmed' && $isPast)
-                : $session->status === 'pending'
-                    && ! $isPast
-                    && in_array($status, ['confirmed', 'declined'], true);
+                : ($status === 'cancelled' && $session->status === 'confirmed' && ! $isPast)
+                    || ($session->status === 'pending'
+                        && ! $isPast
+                        && in_array($status, ['confirmed', 'declined'], true));
 
             if (! $allowed) {
                 return response()->json([

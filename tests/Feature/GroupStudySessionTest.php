@@ -78,6 +78,15 @@ class GroupStudySessionTest extends TestCase
             'participant_user_id' => null,
             'status' => 'confirmed',
         ]);
+
+        $this->actingAs($member, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$sessionId}", ['status' => 'cancelled'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'cancelled');
+        $this->assertDatabaseHas('study_sessions', [
+            'id' => $sessionId,
+            'status' => 'cancelled',
+        ]);
     }
 
     public function test_non_members_cannot_create_or_respond_to_group_sessions(): void
