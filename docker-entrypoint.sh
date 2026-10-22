@@ -5,5 +5,6 @@ export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-http://localhost}}"
 
 php artisan config:cache
 php artisan migrate --force
+php artisan db:seed --force
 
 exec php artisan serve --host=0.0.0.0 --port="${PORT:-10000}"
