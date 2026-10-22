@@ -59,6 +59,28 @@ class BuddyAndGroupDetailsTest extends TestCase
             ->assertJsonValidationErrors(['avatar_icon']);
     }
 
+    public function test_snsu_department_group_icons_are_accepted(): void
+    {
+        $owner = User::factory()->create();
+
+        foreach ([
+            'construct-outline',
+            'laptop-outline',
+            'build-outline',
+            'school-outline',
+            'business-outline',
+        ] as $icon) {
+            $this->actingAs($owner, 'sanctum')
+                ->postJson('/api/v1/groups', [
+                    'name' => "Study group {$icon}",
+                    'course' => 'SNSU',
+                    'avatar_icon' => $icon,
+                ])
+                ->assertCreated()
+                ->assertJsonPath('data.group.avatar_icon', $icon);
+        }
+    }
+
     public function test_only_group_admin_can_edit_group_details_and_avatar(): void
     {
         $admin = User::factory()->create();

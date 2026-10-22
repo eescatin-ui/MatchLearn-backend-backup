@@ -108,7 +108,7 @@ class StudyGroupController extends Controller
         $validator = Validator::make($request->all(), [
             'name' => ['required', 'string', 'max:255'],
             'course' => ['required', 'string', 'max:255'],
-            'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline'],
+            'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline,construct-outline,laptop-outline,build-outline,school-outline,business-outline'],
             'avatar_color' => ['sometimes', 'required', 'string', 'in:#1a5f7a,#15803d,#7c3aed,#c2410c,#be123c,#1d4ed8'],
             'schedule' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
@@ -414,7 +414,7 @@ class StudyGroupController extends Controller
             'course' => ['sometimes', 'string', 'max:255'],
             'schedule' => ['nullable', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
-            'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline'],
+            'avatar_icon' => ['sometimes', 'required', 'string', 'in:book-outline,flask-outline,calculator-outline,code-slash-outline,bulb-outline,globe-outline,construct-outline,laptop-outline,build-outline,school-outline,business-outline'],
             'avatar_color' => ['sometimes', 'required', 'string', 'in:#1a5f7a,#15803d,#7c3aed,#c2410c,#be123c,#1d4ed8'],
         ]);
 
