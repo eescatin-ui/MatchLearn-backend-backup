@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
-use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuthService;
@@ -26,34 +25,14 @@ class AuthController extends Controller
     }
 
     /**
-     * Register a new student.
+     * Password-only registration is disabled; new accounts must pass Google verification.
      */
-    public function register(RegisterRequest $request): JsonResponse
+    public function register(Request $request): JsonResponse
     {
-        try {
-            $user = $this->authService->register(
-                $request->input('name'),
-                $request->input('email'),
-                $request->input('password')
-            );
-
-            $token = $user->createToken('mobile-app')->plainTextToken;
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Registration successful.',
-                'data' => [
-                    'user' => UserResource::make($user),
-                    'token' => $token,
-                ],
-            ], 201);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage(),
-                'errors' => $e->errors(),
-            ], 422);
-        }
+        return response()->json([
+            'success' => false,
+            'message' => 'New accounts must be created using a verified SSCT or SNSU Google account.',
+        ], 403);
     }
 
     /**
@@ -155,10 +134,10 @@ class AuthController extends Controller
             ], 422);
         }
 
-        if (! preg_match('/@(ssct\.edu\.ph|gmail\.com|googlemail\.com)$/i', $email)) {
+        if (! $this->authService->isInstitutionalEmail($email)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Use a verified SSCT student or Gmail Google account.',
+                'message' => 'Use a verified SSCT or SNSU student Google account.',
             ], 403);
         }
 

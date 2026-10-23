@@ -10,24 +10,22 @@ class AuthRegistrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_registration_authenticates_new_account_immediately(): void
+    public function test_password_only_registration_is_rejected_for_institutional_domains(): void
     {
-        $response = $this->postJson('/api/v1/auth/register', [
-            'name' => 'Student User',
-            'email' => 'student@snsu.edu.ph',
-            'password' => 'Password123',
-            'password_confirmation' => 'Password123',
-        ])->assertCreated()
-            ->assertJsonPath('success', true)
-            ->assertJsonPath('data.user.email', 'student@snsu.edu.ph');
+        foreach (['student@ssct.edu.ph', 'student@snsu.edu.ph'] as $email) {
+            $this->postJson('/api/v1/auth/register', [
+                'name' => 'Student User',
+                'email' => $email,
+                'password' => 'Password123',
+                'password_confirmation' => 'Password123',
+            ])->assertForbidden()
+                ->assertJsonPath(
+                    'message',
+                    'New accounts must be created using a verified SSCT or SNSU Google account.'
+                );
 
-        $token = $response->json('data.token');
-        $this->assertNotEmpty($token);
-
-        $this->withToken($token)
-            ->getJson('/api/v1/auth/me')
-            ->assertOk()
-            ->assertJsonPath('data.user.email', 'student@snsu.edu.ph');
+            $this->assertDatabaseMissing('users', ['email' => $email]);
+        }
     }
 
     public function test_existing_account_can_log_in_without_email_verification(): void
@@ -45,16 +43,27 @@ class AuthRegistrationTest extends TestCase
             ->assertJsonStructure(['data' => ['token', 'user']]);
     }
 
-    public function test_gmail_registration_requires_google_sign_in(): void
+    public function test_registration_rejects_non_institutional_email_domains(): void
     {
-        $this->postJson('/api/v1/auth/register', [
-            'name' => 'Gmail User',
-            'email' => 'student@gmail.com',
-            'password' => 'Password123',
-            'password_confirmation' => 'Password123',
-        ])->assertUnprocessable()
-            ->assertJsonPath('errors.email.0', 'Gmail addresses must be verified using Google Sign-In.');
+        foreach ([
+            'student@ssct.edu.ph',
+            'student@snsu.edu.ph',
+            'student@gmail.com',
+            'student@googlemail.com',
+            'student@example.com',
+        ] as $email) {
+            $this->postJson('/api/v1/auth/register', [
+                'name' => 'Non-institutional User',
+                'email' => $email,
+                'password' => 'Password123',
+                'password_confirmation' => 'Password123',
+            ])->assertForbidden()
+                ->assertJsonPath(
+                    'message',
+                    'New accounts must be created using a verified SSCT or SNSU Google account.'
+                );
 
-        $this->assertDatabaseMissing('users', ['email' => 'student@gmail.com']);
+            $this->assertDatabaseMissing('users', ['email' => $email]);
+        }
     }
 }

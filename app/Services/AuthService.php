@@ -31,50 +31,6 @@ class AuthService
     }
 
     /**
-     * Validate password strength.
-     */
-    public function isValidPassword(string $password): bool
-    {
-        // Minimum 8 characters, at least one letter, at least one number
-        return strlen($password) >= 8 &&
-               preg_match('/[a-zA-Z]/', $password) &&
-               preg_match('/[0-9]/', $password);
-    }
-
-    /**
-     * Register a new user.
-     */
-    public function register(string $name, string $email, string $password): User
-    {
-        $email = $this->normalizeEmail($email);
-
-        if (!$this->isInstitutionalEmail($email)) {
-            throw ValidationException::withMessages([
-                'email' => 'Only SNSU and SSCT student emails can register for MatchLearn.',
-            ]);
-        }
-
-        if (!$this->isValidPassword($password)) {
-            throw ValidationException::withMessages([
-                'password' => 'Password must be at least 8 characters with at least one letter and one number.',
-            ]);
-        }
-
-        if (User::where('email', $email)->exists()) {
-            throw ValidationException::withMessages([
-                'email' => 'This email is already registered.',
-            ]);
-        }
-
-        return User::create([
-            'name' => $name,
-            'email' => $email,
-            'password' => $password,
-            'is_suspended' => false,
-        ]);
-    }
-
-    /**
      * Attempt login.
      */
     public function login(string $email, string $password): User
