@@ -19,6 +19,7 @@ class StudySessionController extends Controller
                 ->where('host_user_id', $request->user()->id)
                 ->orWhere('participant_user_id', $request->user()->id)
                 ->orWhereHas('group.members', fn ($members) => $members->where('users.id', $request->user()->id)))
+            ->whereDoesntHave('hiddenByUsers', fn ($users) => $users->whereKey($request->user()->id))
             ->with([
                 'host:id,name',
                 'host.profile:id,user_id,profile_photo_url',
@@ -135,8 +136,10 @@ class StudySessionController extends Controller
                 ->orWhereHas('group.members', fn ($members) => $members->where('users.id', $request->user()->id)))
             ->findOrFail($id);
         $isHost = $session->host_user_id === $request->user()->id;
+        $isStatusChange = $request->exists('status')
+            && ! $request->hasAny(['topic', 'starts_at', 'ends_at', 'location']);
 
-        if ($request->exists('status')) {
+        if ($isStatusChange) {
             $validated = $request->validate([
                 'status' => ['required', 'in:confirmed,declined,cancelled,completed'],
             ]);
@@ -201,10 +204,25 @@ class StudySessionController extends Controller
                 $session->reviews()->delete();
             }
             if ($isReschedulingCompleted || $isReschedulingCancelled) {
-                $validated['status'] = 'confirmed';
+                $validated['status'] = 'pending';
             }
 
             $session->update($validated);
+            if ($isReschedulingCompleted || $isReschedulingCancelled) {
+                $session->hiddenByUsers()->detach();
+                $recipientIds = $session->study_group_id !== null
+                    ? $session->group()->firstOrFail()->members()->pluck('users.id')->all()
+                    : [$session->participant_user_id];
+                $notifications->sendToUsers(
+                    $recipientIds,
+                    "session:{$session->id}:rescheduled:".now()->format('Uu'),
+                    'session_invitation',
+                    'Study session invitation',
+                    "{$request->user()->name} rescheduled {$session->topic}. Please review and respond to the invitation.",
+                    ['session_id' => $session->id],
+                    $request->user()->id
+                );
+            }
         }
         $session->load([
             'host:id,name',
@@ -224,15 +242,24 @@ class StudySessionController extends Controller
     public function destroy(Request $request, int $id): JsonResponse
     {
         $session = StudySession::query()
-            ->where('host_user_id', $request->user()->id)
+            ->where(fn ($query) => $query
+                ->where('host_user_id', $request->user()->id)
+                ->orWhere('participant_user_id', $request->user()->id)
+                ->orWhereHas('group.members', fn ($members) => $members->where('users.id', $request->user()->id)))
             ->whereIn('status', ['completed', 'cancelled'])
             ->findOrFail($id);
 
-        $session->delete();
+        if ($session->host_user_id === $request->user()->id) {
+            $session->delete();
+            $message = 'Study session deleted.';
+        } else {
+            $session->hiddenByUsers()->syncWithoutDetaching([$request->user()->id]);
+            $message = 'Study session removed from your list.';
+        }
 
         return response()->json([
             'success' => true,
-            'message' => 'Study session deleted.',
+            'message' => $message,
         ]);
     }
 

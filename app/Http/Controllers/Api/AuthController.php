@@ -11,6 +11,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -183,6 +184,33 @@ class AuthController extends Controller
             'data' => [
                 'user' => UserResource::make($request->user()),
             ],
+        ]);
+    }
+
+    /**
+     * Change the authenticated user's password after verifying their current password.
+     */
+    public function changePassword(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'current_password' => ['required', 'string', 'current_password'],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/^(?=.*[A-Za-z])(?=.*\d).+$/',
+                'confirmed',
+                'different:current_password',
+            ],
+        ]);
+
+        $request->user()->forceFill([
+            'password' => Hash::make($validated['password']),
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password changed successfully.',
         ]);
     }
 

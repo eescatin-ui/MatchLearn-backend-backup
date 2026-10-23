@@ -65,14 +65,26 @@ class StudySessionReviewTest extends TestCase
 
         $this->actingAs($host, 'sanctum')
             ->patchJson("/api/v1/sessions/{$session->id}", [
+                'status' => 'pending',
                 'topic' => 'Data Structures - Rescheduled',
                 'starts_at' => now()->addDay()->toIso8601String(),
                 'ends_at' => now()->addDay()->addMinutes(30)->toIso8601String(),
                 'location' => 'Library',
             ])
             ->assertOk()
-            ->assertJsonPath('data.session.status', 'confirmed')
+            ->assertJsonPath('data.session.status', 'pending')
             ->assertJsonPath('data.session.is_past', false);
+
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $participant->id,
+            'type' => 'session_invitation',
+        ]);
+        $this->assertDatabaseCount('activity_notifications', 3);
+
+        $this->actingAs($participant, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$session->id}", ['status' => 'confirmed'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'confirmed');
 
         $session->refresh();
         $this->travelTo($session->starts_at->addHour());
@@ -82,7 +94,17 @@ class StudySessionReviewTest extends TestCase
 
         $this->actingAs($participant, 'sanctum')
             ->deleteJson("/api/v1/sessions/{$session->id}")
-            ->assertNotFound();
+            ->assertOk()
+            ->assertJsonPath('message', 'Study session removed from your list.');
+        $this->assertDatabaseHas('study_sessions', ['id' => $session->id]);
+        $this->actingAs($participant, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.sessions');
+        $this->actingAs($host, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonPath('data.sessions.0.id', $session->id);
         $this->actingAs($host, 'sanctum')
             ->deleteJson("/api/v1/sessions/{$session->id}")
             ->assertOk();

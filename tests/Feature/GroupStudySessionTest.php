@@ -83,6 +83,18 @@ class GroupStudySessionTest extends TestCase
             ->patchJson("/api/v1/sessions/{$sessionId}", ['status' => 'cancelled'])
             ->assertOk()
             ->assertJsonPath('data.session.status', 'cancelled');
+        $this->actingAs($member, 'sanctum')
+            ->deleteJson("/api/v1/sessions/{$sessionId}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Study session removed from your list.');
+        $this->actingAs($member, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.sessions');
+        $this->actingAs($admin, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonPath('data.sessions.0.id', $sessionId);
         $this->assertDatabaseHas('study_sessions', [
             'id' => $sessionId,
             'status' => 'cancelled',
@@ -280,18 +292,36 @@ class GroupStudySessionTest extends TestCase
         $newStart = now()->addDays(2);
         $this->actingAs($participant, 'sanctum')
             ->deleteJson("/api/v1/sessions/{$cancelledSession->id}")
-            ->assertNotFound();
+            ->assertOk()
+            ->assertJsonPath('message', 'Study session removed from your list.');
+        $this->actingAs($participant, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonCount(0, 'data.sessions');
+        $this->actingAs($host, 'sanctum')
+            ->getJson('/api/v1/sessions')
+            ->assertOk()
+            ->assertJsonPath('data.sessions.0.id', $cancelledSession->id);
 
         $this->actingAs($host, 'sanctum')
             ->patchJson("/api/v1/sessions/{$cancelledSession->id}", [
+                'status' => 'pending',
                 'topic' => 'Rescheduled review',
                 'starts_at' => $newStart->toIso8601String(),
                 'ends_at' => $newStart->copy()->addHour()->toIso8601String(),
                 'location' => 'Study hall',
             ])
             ->assertOk()
-            ->assertJsonPath('data.session.status', 'confirmed')
+            ->assertJsonPath('data.session.status', 'pending')
             ->assertJsonPath('data.session.topic', 'Rescheduled review');
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $participant->id,
+            'type' => 'session_invitation',
+        ]);
+        $this->actingAs($participant, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$cancelledSession->id}", ['status' => 'confirmed'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'confirmed');
 
         $this->actingAs($host, 'sanctum')
             ->patchJson("/api/v1/sessions/{$cancelledSession->id}", ['status' => 'cancelled'])
@@ -316,5 +346,56 @@ class GroupStudySessionTest extends TestCase
             ->deleteJson("/api/v1/sessions/{$completedSession->id}")
             ->assertOk();
         $this->assertDatabaseMissing('study_sessions', ['id' => $completedSession->id]);
+    }
+
+    public function test_rescheduling_a_group_session_sends_a_new_invitation_to_members(): void
+    {
+        $host = User::factory()->create();
+        $member = User::factory()->create();
+        $groupId = $this->actingAs($host, 'sanctum')
+            ->postJson('/api/v1/groups', ['name' => 'Reschedule group', 'course' => 'IT 218'])
+            ->assertCreated()
+            ->json('data.group.id');
+        $requestId = $this->actingAs($member, 'sanctum')
+            ->postJson("/api/v1/groups/{$groupId}/join")
+            ->assertCreated()
+            ->json('data.request_id');
+        $this->actingAs($host, 'sanctum')
+            ->patchJson("/api/v1/groups/{$groupId}/join-requests/{$requestId}", ['action' => 'accept'])
+            ->assertOk();
+
+        $session = StudySession::create([
+            'host_user_id' => $host->id,
+            'participant_user_id' => null,
+            'study_group_id' => $groupId,
+            'topic' => 'Cancelled group review',
+            'starts_at' => now()->subDay(),
+            'ends_at' => now()->subDay()->addHour(),
+            'location' => 'Library',
+            'status' => 'cancelled',
+        ]);
+        $newStart = now()->addDays(2);
+
+        $this->actingAs($host, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$session->id}", [
+                'status' => 'pending',
+                'topic' => 'Rescheduled group review',
+                'starts_at' => $newStart->toIso8601String(),
+                'ends_at' => $newStart->copy()->addHour()->toIso8601String(),
+                'location' => 'Study hall',
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'pending');
+
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $member->id,
+            'type' => 'session_invitation',
+            'message' => "{$host->name} rescheduled Rescheduled group review. Please review and respond to the invitation.",
+        ]);
+
+        $this->actingAs($member, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$session->id}", ['status' => 'confirmed'])
+            ->assertOk()
+            ->assertJsonPath('data.session.status', 'confirmed');
     }
 }
