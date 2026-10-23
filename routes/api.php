@@ -21,6 +21,7 @@ Route::prefix('v1')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
+        Route::post('google', [AuthController::class, 'google']);
 
         // Protected auth routes
         Route::middleware('auth:sanctum')->group(function () {

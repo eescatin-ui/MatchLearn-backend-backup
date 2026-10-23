@@ -6,14 +6,19 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
+use App\Models\User;
 use App\Services\AuthService;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     protected AuthService $authService;
+
     public function __construct(AuthService $authService)
     {
         $this->authService = $authService;
@@ -80,6 +85,101 @@ class AuthController extends Controller
         }
     }
 
+    public function google(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'id_token' => ['required', 'string', 'max:8192'],
+        ]);
+        $clientId = config('services.google.client_id');
+
+        if (! is_string($clientId) || $clientId === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in is not configured on the server.',
+            ], 503);
+        }
+
+        try {
+            $verification = Http::acceptJson()
+                ->timeout(10)
+                ->get('https://oauth2.googleapis.com/tokeninfo', [
+                    'id_token' => $validated['id_token'],
+                ]);
+        } catch (ConnectionException) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in could not be verified right now. Please try again.',
+            ], 503);
+        }
+
+        if (! $verification->successful()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in token is invalid or expired.',
+            ], 401);
+        }
+
+        $claims = $verification->json();
+        $email = is_string($claims['email'] ?? null)
+            ? mb_strtolower(trim($claims['email']))
+            : '';
+        $emailVerified = filter_var($claims['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $issuer = $claims['iss'] ?? null;
+        $expiresAt = filter_var($claims['exp'] ?? null, FILTER_VALIDATE_INT);
+
+        if (
+            ($claims['aud'] ?? null) !== $clientId
+            || ! in_array($issuer, ['accounts.google.com', 'https://accounts.google.com'], true)
+            || ! $expiresAt
+            || $expiresAt <= now()->timestamp
+            || ! $emailVerified
+            || ! is_string($claims['sub'] ?? null)
+            || $claims['sub'] === ''
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in token could not be validated.',
+            ], 401);
+        }
+
+        if (! preg_match('/@ssct\.edu\.ph$/i', $email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only verified SSCT student accounts can sign in with Google.',
+            ], 403);
+        }
+
+        $user = User::query()->where('email', $email)->first();
+
+        if ($user?->is_suspended) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Your account has been suspended.',
+            ], 403);
+        }
+
+        if (! $user) {
+            $name = is_string($claims['name'] ?? null) && trim($claims['name']) !== ''
+                ? trim($claims['name'])
+                : Str::before($email, '@');
+            $user = User::create([
+                'name' => $name,
+                'email' => $email,
+                'password' => Str::random(64),
+                'is_suspended' => false,
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Google login successful.',
+            'data' => [
+                'user' => UserResource::make($user),
+                'token' => $user->createToken('mobile-app')->plainTextToken,
+            ],
+        ]);
+    }
+
     /**
      * Get current authenticated user.
      */
@@ -119,5 +219,4 @@ class AuthController extends Controller
             'message' => 'Logged out from all devices.',
         ]);
     }
-
 }

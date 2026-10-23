@@ -20,6 +20,8 @@ services:
         value: pgsql
       - key: DB_URL
         sync: false
+      - key: GOOGLE_WEB_CLIENT_ID
+        value: 185052346691-4ptlmks8tej81f2oda640ovtccpfatau.apps.googleusercontent.com
       - key: SESSION_DRIVER
         value: file
       - key: CACHE_STORE
