@@ -32,7 +32,20 @@ class RegisterRequest extends FormRequest
     {
         return [
             'name' => ['required', 'string', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255'],
+            'email' => [
+                'required',
+                'string',
+                'email',
+                'max:255',
+                function ($attribute, $value, $fail) {
+                    if (
+                        is_string($value)
+                        && preg_match('/@(gmail\.com|googlemail\.com)$/i', $value)
+                    ) {
+                        $fail('Gmail addresses must be verified using Google Sign-In.');
+                    }
+                },
+            ],
             'password' => ['required', 'string', 'min:8', 'confirmed'],
         ];
     }

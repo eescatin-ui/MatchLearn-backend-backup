@@ -66,9 +66,63 @@ class GoogleAuthTest extends TestCase
 
         $this->postJson('/api/v1/auth/google', ['id_token' => 'google-id-token'])
             ->assertForbidden()
-            ->assertJsonPath('message', 'Only verified SSCT student accounts can sign in with Google.');
+            ->assertJsonPath('message', 'Use a verified SSCT student or Gmail Google account.');
 
         $this->assertDatabaseMissing('users', ['email' => 'student@snsu.edu.ph']);
+    }
+
+    public function test_verified_gmail_account_can_register_only_when_it_matches_the_entered_email(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'student@gmail.com',
+                'email_verified' => 'true',
+                'sub' => 'google-gmail-user-123',
+                'name' => 'Gmail Student',
+            ]),
+        ]);
+
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+            'expected_email' => 'another@gmail.com',
+        ])->assertUnprocessable()
+            ->assertJsonPath('message', 'The selected Google account does not match the email entered.');
+
+        $this->assertDatabaseMissing('users', ['email' => 'student@gmail.com']);
+
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+            'expected_email' => 'STUDENT@gmail.com',
+        ])->assertOk()
+            ->assertJsonPath('success', true)
+            ->assertJsonPath('data.user.email', 'student@gmail.com');
+
+        $this->assertDatabaseHas('users', ['email' => 'student@gmail.com']);
+    }
+
+    public function test_unverified_gmail_account_cannot_register(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'unverified@gmail.com',
+                'email_verified' => false,
+                'sub' => 'google-unverified-user',
+            ]),
+        ]);
+
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+            'expected_email' => 'unverified@gmail.com',
+        ])->assertUnauthorized()
+            ->assertJsonPath('message', 'Google sign-in token could not be validated.');
+
+        $this->assertDatabaseMissing('users', ['email' => 'unverified@gmail.com']);
     }
 
     public function test_google_sign_in_rejects_invalid_audience_and_suspended_accounts(): void

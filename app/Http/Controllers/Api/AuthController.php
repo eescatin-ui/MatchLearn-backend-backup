@@ -90,6 +90,7 @@ class AuthController extends Controller
     {
         $validated = $request->validate([
             'id_token' => ['required', 'string', 'max:8192'],
+            'expected_email' => ['sometimes', 'required', 'string', 'email', 'max:255'],
         ]);
         $clientId = config('services.google.client_id');
 
@@ -143,10 +144,21 @@ class AuthController extends Controller
             ], 401);
         }
 
-        if (! preg_match('/@ssct\.edu\.ph$/i', $email)) {
+        $expectedEmail = isset($validated['expected_email'])
+            ? mb_strtolower(trim($validated['expected_email']))
+            : null;
+
+        if ($expectedEmail !== null && $expectedEmail !== $email) {
             return response()->json([
                 'success' => false,
-                'message' => 'Only verified SSCT student accounts can sign in with Google.',
+                'message' => 'The selected Google account does not match the email entered.',
+            ], 422);
+        }
+
+        if (! preg_match('/@(ssct\.edu\.ph|gmail\.com|googlemail\.com)$/i', $email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Use a verified SSCT student or Gmail Google account.',
             ], 403);
         }
 

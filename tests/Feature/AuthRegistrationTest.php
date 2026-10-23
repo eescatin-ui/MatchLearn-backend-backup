@@ -44,4 +44,17 @@ class AuthRegistrationTest extends TestCase
             ->assertJsonPath('success', true)
             ->assertJsonStructure(['data' => ['token', 'user']]);
     }
+
+    public function test_gmail_registration_requires_google_sign_in(): void
+    {
+        $this->postJson('/api/v1/auth/register', [
+            'name' => 'Gmail User',
+            'email' => 'student@gmail.com',
+            'password' => 'Password123',
+            'password_confirmation' => 'Password123',
+        ])->assertUnprocessable()
+            ->assertJsonPath('errors.email.0', 'Gmail addresses must be verified using Google Sign-In.');
+
+        $this->assertDatabaseMissing('users', ['email' => 'student@gmail.com']);
+    }
 }
