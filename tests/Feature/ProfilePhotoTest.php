@@ -41,6 +41,7 @@ class ProfilePhotoTest extends TestCase
             'photo' => $this->fakePng('second.png'),
         ])->assertOk();
         $secondPhotoData = $this->fakePng('second.png')->getContent();
+        $this->assertNotSame($firstPhotoUrl, $secondResponse->json('data.profile_photo_url'));
         $this->assertSame(base64_encode($secondPhotoData), $user->profile()->value('profile_photo_data'));
         $this->get('/api/v1/profiles/'.$user->id.'/photo')
             ->assertOk()

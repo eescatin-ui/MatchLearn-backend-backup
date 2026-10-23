@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ProfileController extends Controller
 {
@@ -167,7 +168,10 @@ class ProfileController extends Controller
         $profile->update([
             'profile_photo_data' => base64_encode($photoData),
             'profile_photo_mime_type' => $validated['photo']->getMimeType(),
-            'profile_photo_url' => route('api.v1.profiles.photo', ['userId' => $profile->user_id]),
+            'profile_photo_url' => route('api.v1.profiles.photo', [
+                'userId' => $profile->user_id,
+                'version' => Str::uuid()->toString(),
+            ]),
         ]);
 
         return response()->json([
