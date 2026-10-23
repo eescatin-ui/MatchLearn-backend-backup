@@ -11,6 +11,7 @@ use App\Services\AuthService;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -217,6 +218,25 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Logged out from all devices.',
+        ]);
+    }
+
+    /**
+     * Permanently delete the authenticated user's account and associated data.
+     */
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        DB::transaction(function () use ($user): void {
+            $user->tokens()->delete();
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+            $user->delete();
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Account deleted successfully.',
         ]);
     }
 }
