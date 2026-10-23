@@ -72,57 +72,12 @@ class AuthController extends Controller
             'id_token' => ['required', 'string', 'max:8192'],
             'expected_email' => ['sometimes', 'required', 'string', 'email', 'max:255'],
         ]);
-        $clientId = config('services.google.client_id');
-
-        if (! is_string($clientId) || $clientId === '') {
-            return response()->json([
-                'success' => false,
-                'message' => 'Google sign-in is not configured on the server.',
-            ], 503);
+        $claims = $this->verifyGoogleIdToken($validated['id_token']);
+        if ($claims instanceof JsonResponse) {
+            return $claims;
         }
 
-        try {
-            $verification = Http::acceptJson()
-                ->timeout(10)
-                ->get('https://oauth2.googleapis.com/tokeninfo', [
-                    'id_token' => $validated['id_token'],
-                ]);
-        } catch (ConnectionException) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Google sign-in could not be verified right now. Please try again.',
-            ], 503);
-        }
-
-        if (! $verification->successful()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Google sign-in token is invalid or expired.',
-            ], 401);
-        }
-
-        $claims = $verification->json();
-        $email = is_string($claims['email'] ?? null)
-            ? mb_strtolower(trim($claims['email']))
-            : '';
-        $emailVerified = filter_var($claims['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        $issuer = $claims['iss'] ?? null;
-        $expiresAt = filter_var($claims['exp'] ?? null, FILTER_VALIDATE_INT);
-
-        if (
-            ($claims['aud'] ?? null) !== $clientId
-            || ! in_array($issuer, ['accounts.google.com', 'https://accounts.google.com'], true)
-            || ! $expiresAt
-            || $expiresAt <= now()->timestamp
-            || ! $emailVerified
-            || ! is_string($claims['sub'] ?? null)
-            || $claims['sub'] === ''
-        ) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Google sign-in token could not be validated.',
-            ], 401);
-        }
+        $email = mb_strtolower(trim($claims['email']));
 
         $expectedEmail = isset($validated['expected_email'])
             ? mb_strtolower(trim($validated['expected_email']))
@@ -159,6 +114,7 @@ class AuthController extends Controller
                 'name' => $name,
                 'email' => $email,
                 'password' => Str::random(64),
+                'has_password' => false,
                 'is_suspended' => false,
             ]);
         }
@@ -192,6 +148,13 @@ class AuthController extends Controller
      */
     public function changePassword(Request $request): JsonResponse
     {
+        if (! $request->user()->has_password) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verify your SSCT or SNSU Google account to set a password.',
+            ], 409);
+        }
+
         $validated = $request->validate([
             'current_password' => ['required', 'string', 'current_password'],
             'password' => [
@@ -211,6 +174,57 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Password changed successfully.',
+        ]);
+    }
+
+    /**
+     * Set a password for an account that has not authenticated with a password yet.
+     */
+    public function setPasswordWithGoogle(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'id_token' => ['required', 'string', 'max:8192'],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/^(?=.*[A-Za-z])(?=.*\d).+$/',
+                'confirmed',
+            ],
+        ]);
+
+        $user = $request->user();
+        if ($user->has_password) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This account already has a password. Use the current-password change flow.',
+            ], 409);
+        }
+
+        $claims = $this->verifyGoogleIdToken($validated['id_token']);
+        if ($claims instanceof JsonResponse) {
+            return $claims;
+        }
+
+        $email = mb_strtolower(trim($claims['email']));
+        if (
+            ! $this->authService->isInstitutionalEmail($email)
+            || $email !== mb_strtolower(trim($user->email))
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Verify the same SSCT or SNSU Google account used for this MatchLearn account.',
+            ], 403);
+        }
+
+        $user->forceFill([
+            'password' => Hash::make($validated['password']),
+            'has_password' => true,
+        ])->save();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password set successfully.',
         ]);
     }
 
@@ -257,5 +271,68 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Account deleted successfully.',
         ]);
+    }
+
+    /**
+     * @return array<string, mixed>|JsonResponse
+     */
+    private function verifyGoogleIdToken(string $idToken): array|JsonResponse
+    {
+        $clientId = config('services.google.client_id');
+        if (! is_string($clientId) || $clientId === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in is not configured on the server.',
+            ], 503);
+        }
+
+        try {
+            $verification = Http::acceptJson()
+                ->timeout(10)
+                ->get('https://oauth2.googleapis.com/tokeninfo', [
+                    'id_token' => $idToken,
+                ]);
+        } catch (ConnectionException) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in could not be verified right now. Please try again.',
+            ], 503);
+        }
+
+        if (! $verification->successful()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in token is invalid or expired.',
+            ], 401);
+        }
+
+        $claims = $verification->json();
+        if (! is_array($claims)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in token could not be validated.',
+            ], 401);
+        }
+
+        $emailVerified = filter_var($claims['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $expiresAt = filter_var($claims['exp'] ?? null, FILTER_VALIDATE_INT);
+
+        if (
+            ($claims['aud'] ?? null) !== $clientId
+            || ! in_array($claims['iss'] ?? null, ['accounts.google.com', 'https://accounts.google.com'], true)
+            || ! $expiresAt
+            || $expiresAt <= now()->timestamp
+            || ! $emailVerified
+            || ! is_string($claims['email'] ?? null)
+            || ! is_string($claims['sub'] ?? null)
+            || $claims['sub'] === ''
+        ) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Google sign-in token could not be validated.',
+            ], 401);
+        }
+
+        return $claims;
     }
 }

@@ -40,7 +40,10 @@ class AuthRegistrationTest extends TestCase
             'password' => 'Password123',
         ])->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonStructure(['data' => ['token', 'user']]);
+            ->assertJsonStructure(['data' => ['token', 'user']])
+            ->assertJsonPath('data.user.has_password', true);
+
+        $this->assertTrue($user->fresh()->has_password);
     }
 
     public function test_registration_rejects_non_institutional_email_domains(): void

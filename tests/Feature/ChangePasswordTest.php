@@ -78,4 +78,22 @@ class ChangePasswordTest extends TestCase
             'password_confirmation' => 'NewPassword456',
         ])->assertUnauthorized();
     }
+
+    public function test_google_only_account_must_use_google_verification_to_set_a_password(): void
+    {
+        $user = User::factory()->create(['has_password' => false]);
+        $token = $user->createToken('mobile-app')->plainTextToken;
+
+        $this->withToken($token)
+            ->postJson('/api/v1/auth/change-password', [
+                'current_password' => 'OldPassword123',
+                'password' => 'NewPassword456',
+                'password_confirmation' => 'NewPassword456',
+            ])
+            ->assertStatus(409)
+            ->assertJsonPath(
+                'message',
+                'Verify your SSCT or SNSU Google account to set a password.'
+            );
+    }
 }

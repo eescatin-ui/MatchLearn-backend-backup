@@ -27,6 +27,7 @@ Route::prefix('v1')->group(function () {
         Route::middleware('auth:sanctum')->group(function () {
             Route::get('me', [AuthController::class, 'me']);
             Route::post('change-password', [AuthController::class, 'changePassword']);
+            Route::post('set-password-with-google', [AuthController::class, 'setPasswordWithGoogle']);
             Route::post('logout', [AuthController::class, 'logout']);
             Route::post('logout-all', [AuthController::class, 'logoutAll']);
             Route::delete('account', [AuthController::class, 'deleteAccount']);

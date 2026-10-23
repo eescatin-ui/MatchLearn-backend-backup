@@ -57,6 +57,10 @@ class AuthService
             ]);
         }
 
+        if (! $user->has_password) {
+            $user->forceFill(['has_password' => true])->save();
+        }
+
         return $user;
     }
 
