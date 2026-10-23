@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-export APP_URL="${APP_URL:-${RENDER_EXTERNAL_URL:-http://localhost}}"
+export APP_URL="${RENDER_EXTERNAL_URL:-${APP_URL:-http://localhost}}"
 
 php artisan config:cache
 php artisan migrate --force
