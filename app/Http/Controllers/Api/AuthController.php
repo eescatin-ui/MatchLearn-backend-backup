@@ -28,10 +28,10 @@ class AuthController extends Controller
     {
         $validated = $request->validate([
             'id_token' => ['required', 'string', 'max:8192'],
-            'name' => ['required', 'string', 'min:2', 'max:120'],
+            'name' => ['sometimes', 'required', 'string', 'min:2', 'max:120'],
         ]);
-        $name = trim($validated['name']);
-        if ($name === '') {
+        $name = isset($validated['name']) ? trim($validated['name']) : null;
+        if ($name !== null && $name === '') {
             return response()->json([
                 'success' => false,
                 'message' => 'Enter your full name.',
@@ -66,14 +66,19 @@ class AuthController extends Controller
         }
 
         if (! $user) {
+            if ($name === null) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No account was found for this Google email. Create an account first.',
+                ], 404);
+            }
+
             $user = User::create([
                 'name' => $name,
                 'email' => $email,
                 'password' => Str::random(64),
                 'is_suspended' => false,
             ]);
-        } elseif ($user->name !== $name) {
-            $user->forceFill(['name' => $name])->save();
         }
 
         return response()->json([

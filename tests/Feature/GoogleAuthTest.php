@@ -178,7 +178,7 @@ class GoogleAuthTest extends TestCase
             ->assertJsonPath('message', 'Your account has been suspended.');
     }
 
-    public function test_entered_name_updates_an_existing_account_linked_by_google_email(): void
+    public function test_existing_account_can_sign_in_without_a_name_and_keeps_its_name_and_password(): void
     {
         $user = User::factory()->create([
             'email' => 'student@ssct.edu.ph',
@@ -202,26 +202,67 @@ class GoogleAuthTest extends TestCase
 
         $response = $this->postJson('/api/v1/auth/google', [
                 'id_token' => 'google-id-token',
-                'name' => 'New Profile Name',
             ])
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.id', $user->id)
-            ->assertJsonPath('data.user.name', 'New Profile Name')
+            ->assertJsonPath('data.user.name', 'Old Account Name')
             ->assertJsonPath('data.user.created_at', null);
 
         $this->assertSame(1, User::query()->where('email', $user->email)->count());
+        $this->assertSame('Old Account Name', $user->fresh()->name);
         $this->assertTrue(Hash::check('LegacyPassword123', $user->fresh()->password));
         $this->withToken($response->json('data.token'))
             ->getJson('/api/v1/auth/me')
             ->assertOk()
-            ->assertJsonPath('data.user.name', 'New Profile Name');
+            ->assertJsonPath('data.user.name', 'Old Account Name');
     }
 
-    public function test_google_sign_in_requires_a_full_name(): void
+    public function test_google_sign_in_does_not_replace_an_existing_account_name(): void
     {
+        $user = User::factory()->create([
+            'email' => 'student@ssct.edu.ph',
+            'name' => 'Saved Profile Name',
+        ]);
+
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'student@ssct.edu.ph',
+                'email_verified' => true,
+                'sub' => 'google-existing-user',
+            ]),
+        ]);
+
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+            'name' => 'Name Entered During Account Creation',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.user.name', 'Saved Profile Name');
+
+        $this->assertSame('Saved Profile Name', $user->fresh()->name);
+    }
+
+    public function test_google_sign_in_requires_a_name_to_create_an_account(): void
+    {
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'new-student@ssct.edu.ph',
+                'email_verified' => true,
+                'sub' => 'google-new-user',
+            ]),
+        ]);
+
         $this->postJson('/api/v1/auth/google', ['id_token' => 'google-id-token'])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors(['name']);
+            ->assertNotFound()
+            ->assertJsonPath('message', 'No account was found for this Google email. Create an account first.');
+
+        $this->assertDatabaseMissing('users', ['email' => 'new-student@ssct.edu.ph']);
     }
 }
