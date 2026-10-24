@@ -52,8 +52,8 @@ class ProfileResource extends JsonResource
                     'name' => $this->learningStyle->name,
                 ] : null;
             }),
-            'created_at' => $this->created_at->toIso8601String(),
-            'updated_at' => $this->updated_at->toIso8601String(),
+            'created_at' => $this->created_at?->toIso8601String(),
+            'updated_at' => $this->updated_at?->toIso8601String(),
         ];
     }
 }

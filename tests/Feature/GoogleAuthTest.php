@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -182,7 +183,10 @@ class GoogleAuthTest extends TestCase
         $user = User::factory()->create([
             'email' => 'student@ssct.edu.ph',
             'name' => 'Old Account Name',
+            'password' => 'LegacyPassword123',
+            'created_at' => null,
         ]);
+        $this->assertTrue(Hash::check('LegacyPassword123', $user->password));
 
         Http::fake([
             'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
@@ -203,9 +207,11 @@ class GoogleAuthTest extends TestCase
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.id', $user->id)
-            ->assertJsonPath('data.user.name', 'New Profile Name');
+            ->assertJsonPath('data.user.name', 'New Profile Name')
+            ->assertJsonPath('data.user.created_at', null);
 
         $this->assertSame(1, User::query()->where('email', $user->email)->count());
+        $this->assertTrue(Hash::check('LegacyPassword123', $user->fresh()->password));
         $this->withToken($response->json('data.token'))
             ->getJson('/api/v1/auth/me')
             ->assertOk()

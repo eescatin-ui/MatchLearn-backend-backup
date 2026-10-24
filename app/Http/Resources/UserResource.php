@@ -20,7 +20,7 @@ class UserResource extends JsonResource
                 ? $this->getRelation('profile')?->profile_photo_url
                 : $this->profile()->value('profile_photo_url'),
             'profile' => ProfileResource::make($this->whenLoaded('profile')),
-            'created_at' => $this->created_at->toIso8601String(),
+            'created_at' => $this->created_at?->toIso8601String(),
         ];
     }
 }
