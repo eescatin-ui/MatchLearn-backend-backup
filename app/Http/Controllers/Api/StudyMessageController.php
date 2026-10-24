@@ -56,7 +56,18 @@ class StudyMessageController extends Controller
             ->where(fn ($query) => $query
                 ->where('user_one_id', $request->user()->id)
                 ->orWhere('user_two_id', $request->user()->id))
-            ->with(['firstUser:id,name', 'firstUser.profile:id,user_id,profile_photo_url', 'secondUser:id,name', 'secondUser.profile:id,user_id,profile_photo_url'])
+            ->with([
+                'firstUser' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'firstUser.profile:id,user_id,profile_photo_url',
+                'secondUser' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'secondUser.profile:id,user_id,profile_photo_url',
+            ])
             ->get()
             ->map(function (DirectConversation $conversation) use ($request): array {
                 $otherUser = $conversation->user_one_id === $request->user()->id
@@ -70,6 +81,10 @@ class StudyMessageController extends Controller
                     'name' => $otherUser->name,
                     'initials' => strtoupper(substr($otherUser->name, 0, 2)),
                     'profile_photo_url' => $otherUser->profile?->profile_photo_url,
+                    'average_rating' => $otherUser->buddy_reviews_received_avg_rating === null
+                        ? null
+                        : round((float) $otherUser->buddy_reviews_received_avg_rating, 1),
+                    'ratings_count' => $otherUser->buddy_reviews_received_count,
                     'lastMessage' => $lastMessage ? sprintf(
                         '%s: %s',
                         $lastMessage->user_id === $request->user()->id ? 'You' : $otherUser->name,
@@ -165,6 +180,8 @@ class StudyMessageController extends Controller
             ->whereKey($matchedUserId)
             ->where('is_suspended', false)
             ->with('profile:id,user_id,profile_photo_url')
+            ->withAvg('buddyReviewsReceived', 'rating')
+            ->withCount('buddyReviewsReceived')
             ->firstOrFail();
 
         $conversation = DirectConversation::firstOrCreate([
@@ -182,6 +199,10 @@ class StudyMessageController extends Controller
                     'name' => $matchedUser->name,
                     'initials' => strtoupper(substr($matchedUser->name, 0, 2)),
                     'profile_photo_url' => $matchedUser->profile?->profile_photo_url,
+                    'average_rating' => $matchedUser->buddy_reviews_received_avg_rating === null
+                        ? null
+                        : round((float) $matchedUser->buddy_reviews_received_avg_rating, 1),
+                    'ratings_count' => $matchedUser->buddy_reviews_received_count,
                     'direct_conversation_id' => $conversation->id,
                 ],
             ],
@@ -192,7 +213,13 @@ class StudyMessageController extends Controller
     {
         $conversation = $this->findDirectConversation($request, $id);
         $messages = $conversation->messages()
-            ->with('user:id,name', 'user.profile:id,user_id,profile_photo_url')
+            ->with([
+                'user' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'user.profile:id,user_id,profile_photo_url',
+            ])
             ->oldest()
             ->get();
         $this->markConversationRead($request, 'direct', $conversation->id, $messages);
@@ -210,6 +237,10 @@ class StudyMessageController extends Controller
                     'id' => $message->user->id,
                     'name' => $message->user->name,
                     'profile_photo_url' => $message->user->profile?->profile_photo_url,
+                    'average_rating' => $message->user->buddy_reviews_received_avg_rating === null
+                        ? null
+                        : round((float) $message->user->buddy_reviews_received_avg_rating, 1),
+                    'ratings_count' => $message->user->buddy_reviews_received_count,
                 ] : null,
             ])],
         ]);
@@ -283,7 +314,13 @@ class StudyMessageController extends Controller
     {
         $group = $request->user()->studyGroups()->findOrFail($id);
         $messages = $group->messages()
-            ->with('user:id,name', 'user.profile:id,user_id,profile_photo_url')
+            ->with([
+                'user' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'user.profile:id,user_id,profile_photo_url',
+            ])
             ->oldest()
             ->get();
         $this->markConversationRead($request, 'group', $group->id, $messages);
@@ -303,6 +340,10 @@ class StudyMessageController extends Controller
                             'id' => $message->user->id,
                             'name' => $message->user->name,
                             'profile_photo_url' => $message->user->profile?->profile_photo_url,
+                            'average_rating' => $message->user->buddy_reviews_received_avg_rating === null
+                                ? null
+                                : round((float) $message->user->buddy_reviews_received_avg_rating, 1),
+                            'ratings_count' => $message->user->buddy_reviews_received_count,
                         ] : null,
                     ];
                 }),

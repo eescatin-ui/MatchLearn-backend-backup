@@ -49,7 +49,13 @@ class StudyGroupController extends Controller
                 if ($group->created_by === $request->user()->id) {
                     $result['join_requests'] = $group->joinRequests()
                         ->where('status', 'pending')
-                        ->with('user:id,name', 'user.profile:id,user_id,profile_photo_url')
+                        ->with([
+                            'user' => fn ($query) => $query
+                                ->select('id', 'name')
+                                ->withAvg('buddyReviewsReceived', 'rating')
+                                ->withCount('buddyReviewsReceived'),
+                            'user.profile:id,user_id,profile_photo_url',
+                        ])
                         ->latest()
                         ->get()
                         ->map(fn (StudyGroupJoinRequest $joinRequest): array => [
@@ -57,6 +63,10 @@ class StudyGroupController extends Controller
                             'user_id' => $joinRequest->user_id,
                             'user_name' => $joinRequest->user->name,
                             'profile_photo_url' => $joinRequest->user->profile?->profile_photo_url,
+                            'average_rating' => $joinRequest->user->buddy_reviews_received_avg_rating === null
+                                ? null
+                                : round((float) $joinRequest->user->buddy_reviews_received_avg_rating, 1),
+                            'ratings_count' => $joinRequest->user->buddy_reviews_received_count,
                         ])
                         ->values();
                 }
@@ -186,7 +196,14 @@ class StudyGroupController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $group = $request->user()->studyGroups()
-            ->with('creator:id,name', 'members:id,name', 'members.profile:id,user_id,profile_photo_url')
+            ->with([
+                'creator:id,name',
+                'members' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'members.profile:id,user_id,profile_photo_url',
+            ])
             ->with(['reviews' => fn ($query) => $query->with('reviewer:id,name')->latest()])
             ->withCount('members')
             ->findOrFail($id);
@@ -217,6 +234,10 @@ class StudyGroupController extends Controller
                         'id' => $member->id,
                         'name' => $member->name,
                         'profile_photo_url' => $member->profile?->profile_photo_url,
+                        'average_rating' => $member->buddy_reviews_received_avg_rating === null
+                            ? null
+                            : round((float) $member->buddy_reviews_received_avg_rating, 1),
+                        'ratings_count' => $member->buddy_reviews_received_count,
                         'role' => ucfirst($member->pivot->role),
                     ])->values(),
                     'average_rating' => $group->reviews->isEmpty()

@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\BuddyRequest;
+use App\Models\BuddyReview;
 use App\Models\StudySession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -25,6 +26,11 @@ class StudySessionReviewTest extends TestCase
             'recipient_id' => $participant->id,
             'status' => 'accepted',
         ]);
+        BuddyReview::create([
+            'reviewer_user_id' => $host->id,
+            'reviewed_user_id' => $participant->id,
+            'rating' => 4,
+        ]);
 
         $this->actingAs($host, 'sanctum')
             ->postJson('/api/v1/sessions', [
@@ -36,7 +42,9 @@ class StudySessionReviewTest extends TestCase
             ])
             ->assertCreated()
             ->assertJsonPath('data.session.status', 'pending')
-            ->assertJsonPath('data.session.other_user_profile_photo_url', 'https://example.test/buddy.png');
+            ->assertJsonPath('data.session.other_user_profile_photo_url', 'https://example.test/buddy.png')
+            ->assertJsonPath('data.session.other_user_average_rating', 4)
+            ->assertJsonPath('data.session.other_user_ratings_count', 1);
 
         $session = StudySession::query()->firstOrFail();
         $this->actingAs($participant, 'sanctum')

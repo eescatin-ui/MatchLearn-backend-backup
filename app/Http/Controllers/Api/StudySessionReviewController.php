@@ -25,7 +25,13 @@ class StudySessionReviewController extends Controller
 
         $reviews = BuddyReview::query()
             ->where('reviewed_user_id', $reviewUserId)
-            ->with('reviewer:id,name', 'reviewer.profile:id,user_id,profile_photo_url')
+            ->with([
+                'reviewer' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
+                'reviewer.profile:id,user_id,profile_photo_url',
+            ])
             ->latest()
             ->get()
             ->map(fn (BuddyReview $review) => [
@@ -34,6 +40,10 @@ class StudySessionReviewController extends Controller
                 'comment' => $review->comment,
                 'reviewer_name' => $review->reviewer->name,
                 'reviewer_profile_photo_url' => $review->reviewer->profile?->profile_photo_url,
+                'reviewer_average_rating' => $review->reviewer->buddy_reviews_received_avg_rating === null
+                    ? null
+                    : round((float) $review->reviewer->buddy_reviews_received_avg_rating, 1),
+                'reviewer_ratings_count' => $review->reviewer->buddy_reviews_received_count,
                 'created_at' => $review->created_at->toIso8601String(),
             ]);
 
@@ -64,6 +74,8 @@ class StudySessionReviewController extends Controller
 
             $reviewableBuddies = User::query()
                 ->with('profile:id,user_id,profile_photo_url')
+                ->withAvg('buddyReviewsReceived', 'rating')
+                ->withCount('buddyReviewsReceived')
                 ->whereIn('id', $buddyIds)
                 ->orderBy('name')
                 ->get(['id', 'name'])
@@ -71,6 +83,10 @@ class StudySessionReviewController extends Controller
                     'id' => $buddy->id,
                     'name' => $buddy->name,
                     'profile_photo_url' => $buddy->profile?->profile_photo_url,
+                    'average_rating' => $buddy->buddy_reviews_received_avg_rating === null
+                        ? null
+                        : round((float) $buddy->buddy_reviews_received_avg_rating, 1),
+                    'ratings_count' => $buddy->buddy_reviews_received_count,
                     'my_rating' => $myRatings->get($buddy->id)?->rating,
                     'my_comment' => $myRatings->get($buddy->id)?->comment,
                 ]);

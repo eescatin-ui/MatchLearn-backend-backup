@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\BuddyRequest;
+use App\Models\BuddyReview;
 use App\Models\Profile;
 use App\Models\StudyMatch;
 use App\Models\User;
@@ -36,13 +37,25 @@ class DirectMessageAuthorizationTest extends TestCase
             'recipient_id' => $second->id,
             'status' => 'accepted',
         ]);
+        BuddyReview::create([
+            'reviewer_user_id' => $first->id,
+            'reviewed_user_id' => $second->id,
+            'rating' => 5,
+        ]);
+        BuddyReview::create([
+            'reviewer_user_id' => $second->id,
+            'reviewed_user_id' => $first->id,
+            'rating' => 3,
+        ]);
 
         $conversationResponse = $this->actingAs($first, 'sanctum')
             ->postJson('/api/v1/messages/direct-conversations', [
                 'matched_user_id' => $second->id,
             ])
             ->assertCreated()
-            ->assertJsonPath('data.conversation.profile_photo_url', $secondPhoto);
+            ->assertJsonPath('data.conversation.profile_photo_url', $secondPhoto)
+            ->assertJsonPath('data.conversation.average_rating', 5)
+            ->assertJsonPath('data.conversation.ratings_count', 1);
 
         $conversationId = $conversationResponse->json('data.conversation.id');
 
@@ -62,7 +75,9 @@ class DirectMessageAuthorizationTest extends TestCase
             ->assertJsonPath('data.messages.0.sender', 'them')
             ->assertJsonPath('data.messages.0.user.id', $first->id)
             ->assertJsonPath('data.messages.0.user.name', $first->name)
-            ->assertJsonPath('data.messages.0.user.profile_photo_url', $firstPhoto);
+            ->assertJsonPath('data.messages.0.user.profile_photo_url', $firstPhoto)
+            ->assertJsonPath('data.messages.0.user.average_rating', 3)
+            ->assertJsonPath('data.messages.0.user.ratings_count', 1);
 
         $this->actingAs($second, 'sanctum')
             ->postJson("/api/v1/messages/direct-conversations/{$conversationId}", ['content' => 'Hi there'])

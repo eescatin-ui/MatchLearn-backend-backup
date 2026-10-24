@@ -54,7 +54,9 @@ class BuddyAndGroupDetailsTest extends TestCase
             ->getJson("/api/v1/groups/{$groupId}")
             ->assertOk()
             ->assertJsonPath('data.group.avatar_icon', 'flask-outline')
-            ->assertJsonPath('data.group.avatar_color', '#15803d');
+            ->assertJsonPath('data.group.avatar_color', '#15803d')
+            ->assertJsonPath('data.group.members_list.0.average_rating', null)
+            ->assertJsonPath('data.group.members_list.0.ratings_count', 0);
 
         $this->actingAs(User::factory()->create(), 'sanctum')
             ->postJson('/api/v1/groups', [

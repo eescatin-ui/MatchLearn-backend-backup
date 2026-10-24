@@ -26,14 +26,73 @@ class AuthController extends Controller
     }
 
     /**
-     * Password-only registration is disabled; new accounts must pass Google verification.
+     * Register with a password after Google verifies the institutional email.
      */
     public function register(Request $request): JsonResponse
     {
+        $validated = $request->validate([
+            'id_token' => ['required', 'string', 'max:8192'],
+            'expected_email' => ['required', 'string', 'email', 'max:255'],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/^(?=.*[A-Za-z])(?=.*\d).+$/',
+                'confirmed',
+            ],
+        ]);
+
+        $claims = $this->verifyGoogleIdToken($validated['id_token']);
+        if ($claims instanceof JsonResponse) {
+            return $claims;
+        }
+
+        $email = mb_strtolower(trim($claims['email']));
+        $expectedEmail = mb_strtolower(trim($validated['expected_email']));
+
+        if ($expectedEmail !== $email) {
+            return response()->json([
+                'success' => false,
+                'message' => 'The selected Google account does not match the email entered.',
+            ], 422);
+        }
+
+        if (! $this->authService->isInstitutionalEmail($email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Use a verified SSCT or SNSU student Google account.',
+            ], 403);
+        }
+
+        if (User::query()->where('email', $email)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An account with this email already exists. Sign in instead.',
+            ], 409);
+        }
+
+        $name = is_string($claims['name'] ?? null) && trim($claims['name']) !== ''
+            ? trim($claims['name'])
+            : Str::before($email, '@');
+
+        $user = DB::transaction(function () use ($name, $email, $validated): User {
+            return User::create([
+                'name' => $name,
+                'email' => $email,
+                'password' => $validated['password'],
+                'has_password' => true,
+                'is_suspended' => false,
+            ]);
+        });
+
         return response()->json([
-            'success' => false,
-            'message' => 'New accounts must be created using a verified SSCT or SNSU Google account.',
-        ], 403);
+            'success' => true,
+            'message' => 'Registration successful.',
+            'data' => [
+                'user' => UserResource::make($user),
+                'token' => $user->createToken('mobile-app')->plainTextToken,
+            ],
+        ], 201);
     }
 
     /**

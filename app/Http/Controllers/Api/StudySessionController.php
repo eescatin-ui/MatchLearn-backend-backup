@@ -21,9 +21,15 @@ class StudySessionController extends Controller
                 ->orWhereHas('group.members', fn ($members) => $members->where('users.id', $request->user()->id)))
             ->whereDoesntHave('hiddenByUsers', fn ($users) => $users->whereKey($request->user()->id))
             ->with([
-                'host:id,name',
+                'host' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
                 'host.profile:id,user_id,profile_photo_url',
-                'participant:id,name',
+                'participant' => fn ($query) => $query
+                    ->select('id', 'name')
+                    ->withAvg('buddyReviewsReceived', 'rating')
+                    ->withCount('buddyReviewsReceived'),
                 'participant.profile:id,user_id,profile_photo_url',
                 'group:id,name,avatar_icon,avatar_color',
             ])
@@ -101,9 +107,15 @@ class StudySessionController extends Controller
             'study_group_id' => $groupId,
             'status' => 'pending',
         ])->load([
-            'host:id,name',
+            'host' => fn ($query) => $query
+                ->select('id', 'name')
+                ->withAvg('buddyReviewsReceived', 'rating')
+                ->withCount('buddyReviewsReceived'),
             'host.profile:id,user_id,profile_photo_url',
-            'participant:id,name',
+            'participant' => fn ($query) => $query
+                ->select('id', 'name')
+                ->withAvg('buddyReviewsReceived', 'rating')
+                ->withCount('buddyReviewsReceived'),
             'participant.profile:id,user_id,profile_photo_url',
             'group:id,name,avatar_icon,avatar_color',
         ]);
@@ -225,9 +237,15 @@ class StudySessionController extends Controller
             }
         }
         $session->load([
-            'host:id,name',
+            'host' => fn ($query) => $query
+                ->select('id', 'name')
+                ->withAvg('buddyReviewsReceived', 'rating')
+                ->withCount('buddyReviewsReceived'),
             'host.profile:id,user_id,profile_photo_url',
-            'participant:id,name',
+            'participant' => fn ($query) => $query
+                ->select('id', 'name')
+                ->withAvg('buddyReviewsReceived', 'rating')
+                ->withCount('buddyReviewsReceived'),
             'participant.profile:id,user_id,profile_photo_url',
             'group:id,name,avatar_icon,avatar_color',
         ]);
@@ -278,6 +296,12 @@ class StudySessionController extends Controller
             'target_type' => $session->study_group_id ? 'group' : 'buddy',
             'other_user_name' => $targetName,
             'other_user_profile_photo_url' => $session->study_group_id ? null : $otherParticipant?->profile?->profile_photo_url,
+            'other_user_average_rating' => $session->study_group_id || $otherParticipant?->buddy_reviews_received_avg_rating === null
+                ? null
+                : round((float) $otherParticipant->buddy_reviews_received_avg_rating, 1),
+            'other_user_ratings_count' => $session->study_group_id
+                ? 0
+                : ($otherParticipant?->buddy_reviews_received_count ?? 0),
             'group_avatar_icon' => $session->group?->avatar_icon,
             'group_avatar_color' => $session->group?->avatar_color,
             'topic' => $session->topic,

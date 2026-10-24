@@ -10,19 +10,15 @@ class AuthRegistrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_password_only_registration_is_rejected_for_institutional_domains(): void
+    public function test_password_only_registration_is_rejected_without_google_verification(): void
     {
-        foreach (['student@ssct.edu.ph', 'student@snsu.edu.ph'] as $email) {
+        foreach (['student@ssct.edu.ph', 'student@snsu.edu.ph', 'student@gmail.com'] as $email) {
             $this->postJson('/api/v1/auth/register', [
-                'name' => 'Student User',
                 'email' => $email,
                 'password' => 'Password123',
                 'password_confirmation' => 'Password123',
-            ])->assertForbidden()
-                ->assertJsonPath(
-                    'message',
-                    'New accounts must be created using a verified SSCT or SNSU Google account.'
-                );
+            ])->assertUnprocessable()
+                ->assertJsonValidationErrors(['id_token']);
 
             $this->assertDatabaseMissing('users', ['email' => $email]);
         }
@@ -41,32 +37,11 @@ class AuthRegistrationTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonStructure(['data' => ['token', 'user']])
-            ->assertJsonPath('data.user.has_password', true);
+            ->assertJsonPath('data.user.has_password', true)
+            ->assertJsonPath('data.user.average_rating', null)
+            ->assertJsonPath('data.user.ratings_count', 0);
 
         $this->assertTrue($user->fresh()->has_password);
     }
 
-    public function test_registration_rejects_non_institutional_email_domains(): void
-    {
-        foreach ([
-            'student@ssct.edu.ph',
-            'student@snsu.edu.ph',
-            'student@gmail.com',
-            'student@googlemail.com',
-            'student@example.com',
-        ] as $email) {
-            $this->postJson('/api/v1/auth/register', [
-                'name' => 'Non-institutional User',
-                'email' => $email,
-                'password' => 'Password123',
-                'password_confirmation' => 'Password123',
-            ])->assertForbidden()
-                ->assertJsonPath(
-                    'message',
-                    'New accounts must be created using a verified SSCT or SNSU Google account.'
-                );
-
-            $this->assertDatabaseMissing('users', ['email' => $email]);
-        }
-    }
 }

@@ -15,6 +15,8 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'has_password' => $this->has_password,
             'is_suspended' => $this->is_suspended,
+            'average_rating' => $this->buddyReviewsReceived()->avg('rating'),
+            'ratings_count' => $this->buddyReviewsReceived()->count(),
             'profile_photo_url' => $this->relationLoaded('profile')
                 ? $this->getRelation('profile')?->profile_photo_url
                 : $this->profile()->value('profile_photo_url'),
