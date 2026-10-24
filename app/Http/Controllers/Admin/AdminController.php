@@ -10,12 +10,15 @@ use App\Models\StudyGroup;
 use App\Models\StudySession;
 use App\Models\User;
 use App\Models\UserReport;
+use App\Services\AuthService;
+use App\Services\GoogleIdTokenVerifier;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use RuntimeException;
 
 class AdminController extends Controller
 {
@@ -25,29 +28,57 @@ class AdminController extends Controller
             return Auth::user()->is_admin ? redirect()->route('admin.dashboard') : redirect('/');
         }
 
-        return view('admin.login');
+        return view('admin.login', [
+            'googleClientId' => config('services.google.client_id'),
+        ]);
     }
 
-    public function login(Request $request): RedirectResponse
+    public function loginWithGoogle(
+        Request $request,
+        GoogleIdTokenVerifier $googleIdTokenVerifier,
+        AuthService $authService
+    ): RedirectResponse
     {
-        $credentials = $request->validate([
-            'email' => ['required', 'email'],
-            'password' => ['required', 'string'],
+        $validated = $request->validate([
+            'id_token' => ['required', 'string', 'max:8192'],
+            'name' => ['required', 'string', 'min:2', 'max:120'],
         ]);
-
-        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
-            return back()->withErrors(['email' => 'The provided credentials are invalid.'])->onlyInput('email');
+        $name = trim($validated['name']);
+        if ($name === '') {
+            return back()->withErrors(['name' => 'Enter your full name.']);
         }
 
+        try {
+            $claims = $googleIdTokenVerifier->verify($validated['id_token']);
+        } catch (RuntimeException $exception) {
+            return back()->withErrors(['google' => $exception->getMessage()]);
+        }
+
+        $email = mb_strtolower(trim($claims['email']));
+        if (! $authService->isInstitutionalEmail($email)) {
+            return back()->withErrors([
+                'google' => 'Use a verified SSCT or SNSU administrator Google account.',
+            ]);
+        }
+
+        $user = User::query()->where('email', $email)->first();
+        if (! $user?->is_admin) {
+            return back()->withErrors([
+                'google' => 'This Google account does not have administrator access.',
+            ]);
+        }
+        if ($user->is_suspended) {
+            return back()->withErrors([
+                'google' => 'This administrator account has been suspended.',
+            ]);
+        }
+
+        if ($user->name !== $name) {
+            $user->forceFill(['name' => $name])->save();
+        }
+
+        Auth::login($user);
         $request->session()->regenerate();
-
-        if (! $request->user()->is_admin) {
-            Auth::logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-
-            return back()->withErrors(['email' => 'This account does not have administrator access.'])->onlyInput('email');
-        }
 
         return redirect()->intended(route('admin.dashboard'));
     }

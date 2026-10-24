@@ -7,6 +7,7 @@ use App\Models\LearningStyle;
 use App\Models\Profile;
 use App\Models\StudyGroup;
 use App\Models\StudyGroupReview;
+use App\Models\StudySession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -239,6 +240,17 @@ class BuddyAndGroupDetailsTest extends TestCase
         $this->actingAs($owner, 'sanctum')
             ->patchJson("/api/v1/groups/{$groupId}/join-requests/{$requestId}", ['action' => 'accept'])
             ->assertOk();
+
+        StudySession::create([
+            'host_user_id' => $owner->id,
+            'participant_user_id' => null,
+            'study_group_id' => $groupId,
+            'topic' => 'Completed group session',
+            'starts_at' => now()->subHours(2),
+            'ends_at' => now()->subHour(),
+            'location' => 'Library',
+            'status' => 'completed',
+        ]);
 
         $this->actingAs($member, 'sanctum')
             ->postJson("/api/v1/groups/{$groupId}/reviews", ['rating' => 5, 'comment' => 'Helpful group'])

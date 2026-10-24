@@ -9,30 +9,77 @@ use App\Models\StudySession;
 use App\Models\UserReport;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class AdminDashboardTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_admin_can_sign_in_and_open_the_dashboard(): void
+    public function test_admin_can_sign_in_with_verified_institutional_google_account(): void
     {
         $admin = User::factory()->create([
-            'email' => 'admin@example.test',
+            'email' => 'admin@ssct.edu.ph',
             'password' => 'password',
+            'name' => 'Old Admin Name',
             'is_admin' => true,
         ]);
 
-        $this->get('/admin/login')->assertOk()->assertSee('Sign in to admin');
-        $this->post('/admin/login', [
-            'email' => 'admin@example.test',
-            'password' => 'password',
+        config(['services.google.client_id' => 'matchlearn-web-client']);
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'admin@ssct.edu.ph',
+                'email_verified' => true,
+                'sub' => 'google-admin-123',
+                'name' => 'Google Admin Name',
+            ]),
+        ]);
+
+        $this->get('/admin/login')
+            ->assertOk()
+            ->assertSee('Sign in with Google')
+            ->assertSee('name="name"', false)
+            ->assertDontSee('type="password"', false);
+        $this->post('/admin/google', [
+            'id_token' => 'google-id-token',
+            'name' => 'Entered Admin Name',
         ])->assertRedirect('/admin');
 
         $this->get('/admin')
             ->assertOk()
             ->assertSee('id="admin-app"', false)
-            ->assertSee($admin->name);
+            ->assertSee('Entered Admin Name');
+        $this->assertSame('Entered Admin Name', $admin->fresh()->name);
+    }
+
+    public function test_non_admin_google_account_cannot_access_the_admin_dashboard(): void
+    {
+        User::factory()->create([
+            'email' => 'student@snsu.edu.ph',
+            'is_admin' => false,
+        ]);
+        config(['services.google.client_id' => 'matchlearn-web-client']);
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => 'student@snsu.edu.ph',
+                'email_verified' => true,
+                'sub' => 'google-student-123',
+            ]),
+        ]);
+
+        $this->from('/admin/login')
+            ->post('/admin/google', [
+                'id_token' => 'google-id-token',
+                'name' => 'Student Name',
+            ])
+            ->assertRedirect('/admin/login')
+            ->assertSessionHasErrors('google');
     }
 
     public function test_non_admin_users_cannot_open_the_admin_dashboard_or_api(): void

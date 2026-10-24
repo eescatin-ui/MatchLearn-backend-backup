@@ -52,6 +52,8 @@ button:disabled { cursor: not-allowed; opacity: .55; }
 .login-submit { width: 100%; min-height: 46px; }
 .login-footnote { margin: 23px 0 0; color: #9aa4b1; font-size: 11px; text-align: center; }
 .login-error { margin: -8px 0 20px; padding: 11px 13px; border: 1px solid #f3d1cd; border-radius: 8px; color: #a33f36; background: #fff5f3; font-size: 12px; line-height: 1.5; }
+.admin-google-button { display: flex; min-height: 44px; justify-content: center; margin-top: 4px; }
+.admin-google-button.is-disabled { pointer-events: none; opacity: .45; }
 
 .admin-shell { min-height: 100vh; }
 .sidebar { position: fixed; z-index: 20; inset: 0 auto 0 0; display: flex; width: 248px; flex-direction: column; padding: 24px 16px 17px; border-right: 1px solid #e9edf1; background: #fff; }

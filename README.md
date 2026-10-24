@@ -32,9 +32,9 @@ This repository includes a Render Blueprint and Docker setup for the Laravel API
 
 The included Blueprint uses Render's free web-service plan for testing. Free web services can spin down while idle. Free PostgreSQL databases expire after their trial period; check your existing database's plan and expiry before relying on it. Existing data from another database is not copied automatically.
 
-### Registration email delivery
+### Administrator sign-in
 
-Email-code registration requires a real mail provider. Configure the deployed service with `MAIL_MAILER=smtp`, your provider's `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, and `MAIL_FROM_ADDRESS` values (plus `MAIL_SCHEME` if required), then redeploy. Do not use the `log` mailer in production: it writes messages to server logs instead of proving that a student can access the mailbox.
+The admin dashboard uses Google sign-in and accepts only verified `@ssct.edu.ph` or `@snsu.edu.ph` accounts already marked as administrators. Configure `GOOGLE_WEB_CLIENT_ID` on the backend to the same Google OAuth web client used by the mobile app. The account's `is_admin` permission must be granted by an administrator before it can sign in; the login page never grants admin access or creates accounts.
 
 ## Learning Laravel
 

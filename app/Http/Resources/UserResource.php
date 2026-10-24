@@ -13,7 +13,6 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
-            'has_password' => $this->has_password,
             'is_suspended' => $this->is_suspended,
             'average_rating' => $this->buddyReviewsReceived()->avg('rating'),
             'ratings_count' => $this->buddyReviewsReceived()->count(),

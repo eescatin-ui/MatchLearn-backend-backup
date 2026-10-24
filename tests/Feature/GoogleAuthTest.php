@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Hash;
 use Tests\TestCase;
 
 class GoogleAuthTest extends TestCase
@@ -19,7 +18,7 @@ class GoogleAuthTest extends TestCase
         config(['services.google.client_id' => 'matchlearn-web-client']);
     }
 
-    public function test_verified_ssct_google_account_can_register_and_sign_in(): void
+    public function test_verified_ssct_google_account_can_create_an_account_and_sign_in(): void
     {
         Http::fake([
             'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
@@ -35,15 +34,15 @@ class GoogleAuthTest extends TestCase
 
         $response = $this->postJson('/api/v1/auth/google', [
             'id_token' => 'google-id-token',
+            'name' => 'Entered Student Name',
         ])->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.email', 'student@ssct.edu.ph')
-            ->assertJsonPath('data.user.name', 'SSCT Student')
-            ->assertJsonPath('data.user.has_password', false);
+            ->assertJsonPath('data.user.name', 'Entered Student Name');
 
         $this->assertDatabaseHas('users', [
             'email' => 'student@ssct.edu.ph',
-            'name' => 'SSCT Student',
+            'name' => 'Entered Student Name',
         ]);
 
         $this->withToken($response->json('data.token'))
@@ -52,7 +51,7 @@ class GoogleAuthTest extends TestCase
             ->assertJsonPath('data.user.email', 'student@ssct.edu.ph');
     }
 
-    public function test_verified_snsu_google_account_can_register_and_sign_in(): void
+    public function test_verified_snsu_google_account_can_create_an_account_and_sign_in(): void
     {
         Http::fake([
             'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
@@ -66,7 +65,10 @@ class GoogleAuthTest extends TestCase
             ]),
         ]);
 
-        $response = $this->postJson('/api/v1/auth/google', ['id_token' => 'google-id-token'])
+        $response = $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+            'name' => 'SNSU Student',
+        ])
             ->assertOk()
             ->assertJsonPath('success', true)
             ->assertJsonPath('data.user.email', 'student@snsu.edu.ph');
@@ -104,7 +106,7 @@ class GoogleAuthTest extends TestCase
         foreach (['student@gmail.com', 'student@googlemail.com'] as $email) {
             $this->postJson('/api/v1/auth/google', [
                 'id_token' => 'google-id-token',
-                'expected_email' => $email,
+                'name' => 'Gmail Student',
             ])->assertForbidden()
                 ->assertJsonPath('message', 'Use a verified SSCT or SNSU student Google account.');
 
@@ -112,7 +114,7 @@ class GoogleAuthTest extends TestCase
         }
     }
 
-    public function test_unverified_institutional_google_account_cannot_register(): void
+    public function test_unverified_institutional_google_account_cannot_sign_in(): void
     {
         Http::fake([
             'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
@@ -127,7 +129,7 @@ class GoogleAuthTest extends TestCase
 
         $this->postJson('/api/v1/auth/google', [
             'id_token' => 'google-id-token',
-            'expected_email' => 'unverified@ssct.edu.ph',
+            'name' => 'Unverified Student',
         ])->assertUnauthorized()
             ->assertJsonPath('message', 'Google sign-in token could not be validated.');
 
@@ -156,7 +158,10 @@ class GoogleAuthTest extends TestCase
                 ]),
         ]);
 
-        $this->postJson('/api/v1/auth/google', ['id_token' => 'wrong-audience-token'])
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'wrong-audience-token',
+            'name' => 'Student Name',
+        ])
             ->assertUnauthorized();
 
         User::factory()->create([
@@ -164,18 +169,20 @@ class GoogleAuthTest extends TestCase
             'is_suspended' => true,
         ]);
 
-        $this->postJson('/api/v1/auth/google', ['id_token' => 'suspended-user-token'])
+        $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'suspended-user-token',
+            'name' => 'Suspended Student',
+        ])
             ->assertForbidden()
             ->assertJsonPath('message', 'Your account has been suspended.');
     }
 
-    public function test_google_only_user_can_set_password_after_reverifying_the_same_institutional_account(): void
+    public function test_entered_name_updates_an_existing_account_linked_by_google_email(): void
     {
         $user = User::factory()->create([
             'email' => 'student@ssct.edu.ph',
-            'has_password' => false,
+            'name' => 'Old Account Name',
         ]);
-        $token = $user->createToken('mobile-app')->plainTextToken;
 
         Http::fake([
             'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
@@ -185,75 +192,30 @@ class GoogleAuthTest extends TestCase
                 'email' => 'student@ssct.edu.ph',
                 'email_verified' => true,
                 'sub' => 'google-user-123',
+                'name' => 'Google Account Name',
             ]),
         ]);
 
-        $this->withToken($token)
-            ->postJson('/api/v1/auth/set-password-with-google', [
+        $response = $this->postJson('/api/v1/auth/google', [
                 'id_token' => 'google-id-token',
-                'password' => 'NewPassword456',
-                'password_confirmation' => 'NewPassword456',
+                'name' => 'New Profile Name',
             ])
             ->assertOk()
             ->assertJsonPath('success', true)
-            ->assertJsonPath('message', 'Password set successfully.');
+            ->assertJsonPath('data.user.id', $user->id)
+            ->assertJsonPath('data.user.name', 'New Profile Name');
 
-        $this->assertTrue(Hash::check('NewPassword456', $user->fresh()->password));
-        $this->assertTrue($user->fresh()->has_password);
+        $this->assertSame(1, User::query()->where('email', $user->email)->count());
+        $this->withToken($response->json('data.token'))
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.user.name', 'New Profile Name');
     }
 
-    public function test_google_only_user_cannot_set_password_with_another_google_account(): void
+    public function test_google_sign_in_requires_a_full_name(): void
     {
-        $user = User::factory()->create([
-            'email' => 'student@ssct.edu.ph',
-            'has_password' => false,
-        ]);
-        $token = $user->createToken('mobile-app')->plainTextToken;
-
-        Http::fake([
-            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
-                'aud' => 'matchlearn-web-client',
-                'iss' => 'https://accounts.google.com',
-                'exp' => (string) now()->addMinutes(5)->timestamp,
-                'email' => 'other@snsu.edu.ph',
-                'email_verified' => true,
-                'sub' => 'other-google-user',
-            ]),
-        ]);
-
-        $this->withToken($token)
-            ->postJson('/api/v1/auth/set-password-with-google', [
-                'id_token' => 'other-google-id-token',
-                'password' => 'NewPassword456',
-                'password_confirmation' => 'NewPassword456',
-            ])
-            ->assertForbidden()
-            ->assertJsonPath(
-                'message',
-                'Verify the same SSCT or SNSU Google account used for this MatchLearn account.'
-            );
-
-        $this->assertFalse($user->fresh()->has_password);
-    }
-
-    public function test_google_verification_cannot_replace_a_password_that_is_already_set(): void
-    {
-        $user = User::factory()->create([
-            'email' => 'student@ssct.edu.ph',
-            'password' => 'OldPassword123',
-            'has_password' => true,
-        ]);
-        $token = $user->createToken('mobile-app')->plainTextToken;
-
-        $this->withToken($token)
-            ->postJson('/api/v1/auth/set-password-with-google', [
-                'id_token' => 'google-id-token',
-                'password' => 'NewPassword456',
-                'password_confirmation' => 'NewPassword456',
-            ])
-            ->assertStatus(409)
-            ->assertJsonPath('success', false);
-
-        $this->assertTrue(Hash::check('OldPassword123', $user->fresh()->password));
+        $this->postJson('/api/v1/auth/google', ['id_token' => 'google-id-token'])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['name']);
     }
 }

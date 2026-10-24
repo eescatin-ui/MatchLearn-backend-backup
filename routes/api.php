@@ -19,17 +19,11 @@ Route::prefix('v1')->group(function () {
 
     // Public auth routes
     Route::prefix('auth')->group(function () {
-        Route::post('register/verification-code', [AuthController::class, 'sendRegistrationVerificationCode'])
-            ->middleware('throttle:3,10');
-        Route::post('register', [AuthController::class, 'register']);
-        Route::post('login', [AuthController::class, 'login']);
         Route::post('google', [AuthController::class, 'google']);
 
         // Protected auth routes
         Route::middleware('auth:sanctum')->group(function () {
             Route::get('me', [AuthController::class, 'me']);
-            Route::post('change-password', [AuthController::class, 'changePassword']);
-            Route::post('set-password-with-google', [AuthController::class, 'setPasswordWithGoogle']);
             Route::post('logout', [AuthController::class, 'logout']);
             Route::post('logout-all', [AuthController::class, 'logoutAll']);
             Route::delete('account', [AuthController::class, 'deleteAccount']);
