@@ -19,6 +19,8 @@ Route::prefix('v1')->group(function () {
 
     // Public auth routes
     Route::prefix('auth')->group(function () {
+        Route::post('register/verification-code', [AuthController::class, 'sendRegistrationVerificationCode'])
+            ->middleware('throttle:3,10');
         Route::post('register', [AuthController::class, 'register']);
         Route::post('login', [AuthController::class, 'login']);
         Route::post('google', [AuthController::class, 'google']);

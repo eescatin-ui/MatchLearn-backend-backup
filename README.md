@@ -32,6 +32,10 @@ This repository includes a Render Blueprint and Docker setup for the Laravel API
 
 The included Blueprint uses Render's free web-service plan for testing. Free web services can spin down while idle. Free PostgreSQL databases expire after their trial period; check your existing database's plan and expiry before relying on it. Existing data from another database is not copied automatically.
 
+### Registration email delivery
+
+Email-code registration requires a real mail provider. Configure the deployed service with `MAIL_MAILER=smtp`, your provider's `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD`, and `MAIL_FROM_ADDRESS` values (plus `MAIL_SCHEME` if required), then redeploy. Do not use the `log` mailer in production: it writes messages to server logs instead of proving that a student can access the mailbox.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.

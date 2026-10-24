@@ -19,16 +19,15 @@ class ExampleTest extends TestCase
         $response->assertStatus(200);
     }
 
-    public function test_register_accepts_confirm_password_alias(): void
+    public function test_registration_requires_email_verification(): void
     {
         $response = $this->postJson('/api/v1/auth/register', [
-            'name' => 'Test Student',
             'email' => 'student@ssct.edu.ph',
             'password' => 'Password123',
-            'confirmPassword' => 'Password123',
+            'password_confirmation' => 'Password123',
         ]);
 
-        $response->assertStatus(201)
-            ->assertJsonPath('success', true);
+        $response->assertUnprocessable()
+            ->assertJsonValidationErrors(['code']);
     }
 }

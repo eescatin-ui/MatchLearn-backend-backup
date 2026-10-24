@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Auth\LoginRequest;
 use App\Http\Resources\UserResource;
+use App\Mail\RegistrationVerificationCodeMail;
 use App\Models\User;
 use App\Services\AuthService;
 use Illuminate\Http\Client\ConnectionException;
@@ -13,6 +14,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -25,42 +27,17 @@ class AuthController extends Controller
         $this->authService = $authService;
     }
 
-    /**
-     * Register with a password after Google verifies the institutional email.
-     */
-    public function register(Request $request): JsonResponse
+    public function sendRegistrationVerificationCode(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'id_token' => ['required', 'string', 'max:8192'],
-            'expected_email' => ['required', 'string', 'email', 'max:255'],
-            'password' => [
-                'required',
-                'string',
-                'min:8',
-                'regex:/^(?=.*[A-Za-z])(?=.*\d).+$/',
-                'confirmed',
-            ],
+            'email' => ['required', 'string', 'email', 'max:255'],
         ]);
-
-        $claims = $this->verifyGoogleIdToken($validated['id_token']);
-        if ($claims instanceof JsonResponse) {
-            return $claims;
-        }
-
-        $email = mb_strtolower(trim($claims['email']));
-        $expectedEmail = mb_strtolower(trim($validated['expected_email']));
-
-        if ($expectedEmail !== $email) {
-            return response()->json([
-                'success' => false,
-                'message' => 'The selected Google account does not match the email entered.',
-            ], 422);
-        }
+        $email = $this->authService->normalizeEmail($validated['email']);
 
         if (! $this->authService->isInstitutionalEmail($email)) {
             return response()->json([
                 'success' => false,
-                'message' => 'Use a verified SSCT or SNSU student Google account.',
+                'message' => 'Use an @ssct.edu.ph or @snsu.edu.ph student email.',
             ], 403);
         }
 
@@ -71,18 +48,101 @@ class AuthController extends Controller
             ], 409);
         }
 
-        $name = is_string($claims['name'] ?? null) && trim($claims['name']) !== ''
-            ? trim($claims['name'])
-            : Str::before($email, '@');
+        $existingCode = DB::table('registration_verification_codes')->where('email', $email)->first();
+        if ($existingCode && now()->diffInSeconds($existingCode->last_sent_at) < 60) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Wait a minute before requesting another verification code.',
+            ], 429);
+        }
 
-        $user = DB::transaction(function () use ($name, $email, $validated): User {
-            return User::create([
-                'name' => $name,
+        $code = (string) random_int(100000, 999999);
+        Mail::to($email)->send(new RegistrationVerificationCodeMail($code));
+
+        DB::table('registration_verification_codes')->updateOrInsert(
+            ['email' => $email],
+            [
+                'code_hash' => Hash::make($code),
+                'attempts' => 0,
+                'expires_at' => now()->addMinutes(10),
+                'last_sent_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'A verification code has been sent to your institutional email.',
+        ]);
+    }
+
+    public function register(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'code' => ['required', 'digits:6'],
+            'password' => [
+                'required',
+                'string',
+                'min:8',
+                'regex:/^(?=.*[A-Za-z])(?=.*\d).+$/',
+                'confirmed',
+            ],
+        ]);
+        $email = $this->authService->normalizeEmail($validated['email']);
+
+        if (! $this->authService->isInstitutionalEmail($email)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Use an @ssct.edu.ph or @snsu.edu.ph student email.',
+            ], 403);
+        }
+
+        $verification = DB::table('registration_verification_codes')->where('email', $email)->first();
+        if (! $verification || now()->greaterThan($verification->expires_at)) {
+            DB::table('registration_verification_codes')->where('email', $email)->delete();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Your verification code has expired. Request a new code.',
+            ], 422);
+        }
+        if ($verification->attempts >= 5) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Too many incorrect attempts. Request a new verification code.',
+            ], 429);
+        }
+        if (! Hash::check($validated['code'], $verification->code_hash)) {
+            DB::table('registration_verification_codes')
+                ->where('email', $email)
+                ->increment('attempts');
+
+            return response()->json([
+                'success' => false,
+                'message' => 'The verification code is incorrect.',
+            ], 422);
+        }
+
+        if (User::query()->where('email', $email)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An account with this email already exists. Sign in instead.',
+            ], 409);
+        }
+
+        [$user, $token] = DB::transaction(function () use ($email, $validated): array {
+            $user = User::create([
+                'name' => Str::before($email, '@'),
                 'email' => $email,
                 'password' => $validated['password'],
                 'has_password' => true,
                 'is_suspended' => false,
             ]);
+            DB::table('registration_verification_codes')->where('email', $email)->delete();
+
+            return [$user, $user->createToken('mobile-app')->plainTextToken];
         });
 
         return response()->json([
@@ -90,7 +150,7 @@ class AuthController extends Controller
             'message' => 'Registration successful.',
             'data' => [
                 'user' => UserResource::make($user),
-                'token' => $user->createToken('mobile-app')->plainTextToken,
+                'token' => $token,
             ],
         ], 201);
     }
