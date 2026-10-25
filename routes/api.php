@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\StudyMessageController;
 use App\Http\Controllers\Api\StudySessionController;
 use App\Http\Controllers\Api\StudySessionReviewController;
 use App\Http\Controllers\Api\UserReportController;
+use App\Http\Controllers\Api\UserBlockController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
@@ -78,6 +79,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/{id}', [BuddyController::class, 'show']);
             Route::delete('/{id}', [BuddyController::class, 'destroy']);
         });
+        Route::get('blocks', [UserBlockController::class, 'index']);
+        Route::post('blocks', [UserBlockController::class, 'store']);
+        Route::delete('blocks/{userId}', [UserBlockController::class, 'destroy']);
 
         Route::get('sessions', [StudySessionController::class, 'index']);
         Route::post('sessions', [StudySessionController::class, 'store']);

@@ -9,6 +9,7 @@ use App\Models\DirectConversation;
 use App\Models\StudyGroup;
 use App\Models\StudyMessage;
 use App\Models\User;
+use App\Models\UserBlock;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
@@ -56,6 +57,16 @@ class StudyMessageController extends Controller
             ->where(fn ($query) => $query
                 ->where('user_one_id', $request->user()->id)
                 ->orWhere('user_two_id', $request->user()->id))
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocker_user_id', 'direct_conversations.user_one_id')
+                ->whereColumn('user_blocks.blocked_user_id', 'direct_conversations.user_two_id'))
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocker_user_id', 'direct_conversations.user_two_id')
+                ->whereColumn('user_blocks.blocked_user_id', 'direct_conversations.user_one_id'))
             ->with([
                 'firstUser' => fn ($query) => $query
                     ->select('id', 'name')
@@ -156,6 +167,13 @@ class StudyMessageController extends Controller
             ], 422);
         }
 
+        if (UserBlock::blocksEitherDirection($request->user()->id, $matchedUserId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot start a conversation with this user.',
+            ], 403);
+        }
+
         $isBuddy = BuddyRequest::query()
             ->where('status', 'accepted')
             ->where(function ($query) use ($request, $matchedUserId): void {
@@ -250,12 +268,22 @@ class StudyMessageController extends Controller
     {
         $validated = $request->validate([
             'content' => ['required', 'string', 'max:2000'],
+            'client_message_id' => ['nullable', 'string', 'max:64'],
         ]);
         $conversation = $this->findDirectConversation($request, $id);
-        $message = $conversation->messages()->create([
+        $messageAttributes = [
             'user_id' => $request->user()->id,
             'content' => $validated['content'],
-        ]);
+        ];
+        $message = isset($validated['client_message_id'])
+            ? $conversation->messages()->firstOrCreate(
+                [
+                    'user_id' => $request->user()->id,
+                    'client_message_id' => $validated['client_message_id'],
+                ],
+                ['content' => $validated['content']]
+            )
+            : $conversation->messages()->create($messageAttributes);
         $conversation->touch();
 
         return response()->json([
@@ -277,6 +305,7 @@ class StudyMessageController extends Controller
         $validator = Validator::make($request->all(), [
             'group_id' => ['required', 'integer', 'exists:study_groups,id'],
             'content' => ['required', 'string', 'max:2000'],
+            'client_message_id' => ['nullable', 'string', 'max:64'],
         ]);
 
         if ($validator->fails()) {
@@ -289,11 +318,21 @@ class StudyMessageController extends Controller
 
         $group = $request->user()->studyGroups()->findOrFail($request->input('group_id'));
 
-        $message = StudyMessage::create([
+        $messageAttributes = [
             'group_id' => $group->id,
             'user_id' => $request->user()->id,
             'content' => $request->input('content'),
-        ]);
+        ];
+        $message = $request->filled('client_message_id')
+            ? StudyMessage::query()->firstOrCreate(
+                [
+                    'group_id' => $group->id,
+                    'user_id' => $request->user()->id,
+                    'client_message_id' => $request->input('client_message_id'),
+                ],
+                ['content' => $request->input('content')]
+            )
+            : StudyMessage::create($messageAttributes);
 
         return response()->json([
             'success' => true,
@@ -442,11 +481,18 @@ class StudyMessageController extends Controller
 
     private function findDirectConversation(Request $request, int $id): DirectConversation
     {
-        return DirectConversation::query()
+        $conversation = DirectConversation::query()
             ->whereKey($id)
             ->where(fn ($query) => $query
                 ->where('user_one_id', $request->user()->id)
                 ->orWhere('user_two_id', $request->user()->id))
             ->firstOrFail();
+
+        $otherUserId = $conversation->user_one_id === $request->user()->id
+            ? $conversation->user_two_id
+            : $conversation->user_one_id;
+        abort_if(UserBlock::blocksEitherDirection($request->user()->id, $otherUserId), 404);
+
+        return $conversation;
     }
 }

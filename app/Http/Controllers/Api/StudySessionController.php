@@ -100,6 +100,20 @@ class StudySessionController extends Controller
             StudyGroup::query()->findOrFail($groupId);
         }
 
+        $participantIds = $participantId !== null
+            ? [$request->user()->id, $participantId]
+            : StudyGroup::query()->findOrFail($groupId)->members()->pluck('users.id')->all();
+        if ($this->hasSessionConflict(
+            $participantIds,
+            $validated['starts_at'],
+            $validated['ends_at']
+        )) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You or another session participant already has a pending or confirmed session during this time.',
+            ], 422);
+        }
+
         $session = StudySession::create([
             ...$validated,
             'host_user_id' => $request->user()->id,
@@ -184,6 +198,18 @@ class StudySessionController extends Controller
                         : "{$request->user()->name} declined the study session invitation.",
                     ['session_id' => $session->id]
                 );
+            } elseif (in_array($status, ['cancelled', 'completed'], true)) {
+                $notifications->sendToUsers(
+                    $this->sessionParticipantIds($session),
+                    "session:{$session->id}:status:{$status}:".now()->format('Uu'),
+                    $status === 'cancelled' ? 'session_cancelled' : 'session_completed',
+                    $status === 'cancelled' ? 'Study session cancelled' : 'Study session completed',
+                    $status === 'cancelled'
+                        ? "{$request->user()->name} cancelled {$session->topic}."
+                        : "{$request->user()->name} marked {$session->topic} as completed.",
+                    ['session_id' => $session->id],
+                    $request->user()->id
+                );
             }
         } else {
             if (! $isHost) {
@@ -212,6 +238,21 @@ class StudySessionController extends Controller
                 'location' => ['required', 'string', 'max:255'],
             ]);
 
+            $participantIds = $session->study_group_id !== null
+                ? $session->group()->firstOrFail()->members()->pluck('users.id')->all()
+                : [$session->host_user_id, $session->participant_user_id];
+            if ($this->hasSessionConflict(
+                $participantIds,
+                $validated['starts_at'],
+                $validated['ends_at'],
+                $session->id
+            )) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'You or another session participant already has a pending or confirmed session during this time.',
+                ], 422);
+            }
+
             if ($isReschedulingCompleted) {
                 $session->reviews()->delete();
             }
@@ -231,6 +272,16 @@ class StudySessionController extends Controller
                     'session_invitation',
                     'Study session invitation',
                     "{$request->user()->name} rescheduled {$session->topic}. Please review and respond to the invitation.",
+                    ['session_id' => $session->id],
+                    $request->user()->id
+                );
+            } else {
+                $notifications->sendToUsers(
+                    $this->sessionParticipantIds($session),
+                    "session:{$session->id}:updated:".now()->format('Uu'),
+                    'session_updated',
+                    'Study session updated',
+                    "{$request->user()->name} updated the details for {$session->topic}.",
                     ['session_id' => $session->id],
                     $request->user()->id
                 );
@@ -312,5 +363,45 @@ class StudySessionController extends Controller
             'is_past' => in_array($session->status, ['pending', 'confirmed'], true)
                 && ($session->ends_at ?? $session->starts_at)->isPast(),
         ];
+    }
+
+    private function sessionParticipantIds(StudySession $session): array
+    {
+        $userIds = [$session->host_user_id, $session->participant_user_id];
+
+        if ($session->study_group_id !== null) {
+            $userIds = [
+                ...$userIds,
+                ...$session->group()->firstOrFail()->members()->pluck('users.id')->all(),
+            ];
+        }
+
+        return array_values(array_unique(array_filter($userIds)));
+    }
+
+    private function hasSessionConflict(
+        array $participantIds,
+        string $startsAt,
+        string $endsAt,
+        ?int $excludeSessionId = null
+    ): bool {
+        $newStart = \Illuminate\Support\Carbon::parse($startsAt);
+        $newEnd = \Illuminate\Support\Carbon::parse($endsAt);
+
+        return StudySession::query()
+            ->whereIn('status', ['pending', 'confirmed'])
+            ->when($excludeSessionId, fn ($query) => $query->whereKeyNot($excludeSessionId))
+            ->where(function ($query) use ($participantIds): void {
+                $query->whereIn('host_user_id', $participantIds)
+                    ->orWhereIn('participant_user_id', $participantIds)
+                    ->orWhereHas('group.members', fn ($members) => $members->whereIn('users.id', $participantIds));
+            })
+            ->where('starts_at', '<', $newEnd)
+            ->get(['starts_at', 'ends_at'])
+            ->contains(function (StudySession $existing) use ($newStart, $newEnd): bool {
+                $existingEnd = $existing->ends_at ?? $existing->starts_at->copy()->addHour();
+
+                return $existing->starts_at < $newEnd && $existingEnd > $newStart;
+            });
     }
 }

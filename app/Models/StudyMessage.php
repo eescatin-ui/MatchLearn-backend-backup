@@ -16,6 +16,7 @@ class StudyMessage extends Model
         'group_id',
         'direct_conversation_id',
         'user_id',
+        'client_message_id',
         'content',
     ];
 

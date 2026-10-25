@@ -8,6 +8,7 @@ use App\Models\Course;
 use App\Models\MatchingSetting;
 use App\Models\StudyCourse;
 use App\Models\User;
+use App\Models\UserBlock;
 use Illuminate\Support\Collection;
 
 class MatchingService
@@ -27,6 +28,16 @@ class MatchingService
         $potentialMatches = User::query()
             ->whereKeyNot($user->id)
             ->where('is_suspended', false)
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocked_user_id', 'users.id')
+                ->where('user_blocks.blocker_user_id', $user->id))
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocker_user_id', 'users.id')
+                ->where('user_blocks.blocked_user_id', $user->id))
             ->with(['profile.department', 'profile.program', 'profile.learningStyle', 'profile.studyCourses', 'courses', 'availabilities', 'strengths', 'weaknesses'])
             ->get();
 

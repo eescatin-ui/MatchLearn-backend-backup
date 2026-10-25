@@ -116,4 +116,63 @@ class DirectMessageAuthorizationTest extends TestCase
             ->assertForbidden()
             ->assertJsonPath('message', 'You can only start a conversation with an accepted study buddy.');
     }
+
+    public function test_retries_with_the_same_client_message_id_do_not_duplicate_a_direct_message(): void
+    {
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        BuddyRequest::create([
+            'requester_id' => $first->id,
+            'recipient_id' => $second->id,
+            'status' => 'accepted',
+        ]);
+        $conversationId = $this->actingAs($first, 'sanctum')
+            ->postJson('/api/v1/messages/direct-conversations', ['matched_user_id' => $second->id])
+            ->assertCreated()
+            ->json('data.conversation.id');
+
+        $firstResponse = $this->actingAs($first, 'sanctum')
+            ->postJson("/api/v1/messages/direct-conversations/{$conversationId}", [
+                'content' => 'Please review this topic.',
+                'client_message_id' => 'retry-token-123',
+            ])
+            ->assertCreated();
+        $retryResponse = $this->actingAs($first, 'sanctum')
+            ->postJson("/api/v1/messages/direct-conversations/{$conversationId}", [
+                'content' => 'Please review this topic.',
+                'client_message_id' => 'retry-token-123',
+            ])
+            ->assertCreated();
+
+        $this->assertSame(
+            $firstResponse->json('data.message.id'),
+            $retryResponse->json('data.message.id')
+        );
+        $this->assertDatabaseCount('study_group_messages', 1);
+    }
+
+    public function test_retries_with_the_same_client_message_id_do_not_duplicate_a_group_message(): void
+    {
+        $member = User::factory()->create();
+        $groupId = $this->actingAs($member, 'sanctum')
+            ->postJson('/api/v1/groups', ['name' => 'Review group', 'course' => 'IT 213'])
+            ->assertCreated()
+            ->json('data.group.id');
+
+        foreach (['First attempt', 'Retry attempt'] as $content) {
+            $this->actingAs($member, 'sanctum')
+                ->postJson('/api/v1/messages', [
+                    'group_id' => $groupId,
+                    'content' => $content,
+                    'client_message_id' => 'group-retry-token-123',
+                ])
+                ->assertCreated();
+        }
+
+        $this->assertDatabaseCount('study_group_messages', 1);
+        $this->assertDatabaseHas('study_group_messages', [
+            'group_id' => $groupId,
+            'content' => 'First attempt',
+        ]);
+    }
 }

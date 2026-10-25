@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\BuddyRequest;
 use App\Models\StudyMatch;
 use App\Models\User;
+use App\Models\UserBlock;
 use App\Services\ActivityNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,16 @@ class BuddyController extends Controller
                 $query->where('requester_id', $userId)
                     ->orWhere('recipient_id', $userId);
             })
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocker_user_id', 'buddy_requests.requester_id')
+                ->whereColumn('user_blocks.blocked_user_id', 'buddy_requests.recipient_id'))
+            ->whereNotExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('user_blocks')
+                ->whereColumn('user_blocks.blocker_user_id', 'buddy_requests.recipient_id')
+                ->whereColumn('user_blocks.blocked_user_id', 'buddy_requests.requester_id'))
             ->whereIn('status', ['pending', 'accepted'])
             ->with([
                 'requester' => fn ($query) => $query
@@ -70,6 +81,7 @@ class BuddyController extends Controller
     public function show(Request $request, int $id): JsonResponse
     {
         $userId = $request->user()->id;
+        abort_if(UserBlock::blocksEitherDirection($userId, $id), 404);
         $isBuddy = BuddyRequest::query()
             ->where('status', 'accepted')
             ->where(fn ($query) => $query
@@ -168,6 +180,13 @@ class BuddyController extends Controller
             return response()->json(['success' => false, 'message' => 'You cannot request yourself.'], 422);
         }
 
+        if (UserBlock::blocksEitherDirection($requesterId, $recipientId)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You cannot send a buddy request to this user.',
+            ], 403);
+        }
+
         $isRecommendation = StudyMatch::query()
             ->where(fn ($query) => $query->where('user_id', $requesterId)->where('matched_user_id', $recipientId))
             ->orWhere(fn ($query) => $query->where('user_id', $recipientId)->where('matched_user_id', $requesterId))
@@ -259,6 +278,12 @@ class BuddyController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Pending buddy request not found.',
+            ], 404);
+        }
+        if (UserBlock::blocksEitherDirection($buddyRequest->requester_id, $buddyRequest->recipient_id)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This buddy request is no longer available.',
             ], 404);
         }
 

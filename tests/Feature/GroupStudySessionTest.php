@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\BuddyRequest;
 use App\Models\StudySession;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -98,6 +99,59 @@ class GroupStudySessionTest extends TestCase
         $this->assertDatabaseHas('study_sessions', [
             'id' => $sessionId,
             'status' => 'cancelled',
+        ]);
+    }
+
+    public function test_session_updates_and_cancellations_notify_the_other_participants(): void
+    {
+        $host = User::factory()->create();
+        $participant = User::factory()->create();
+        BuddyRequest::create([
+            'requester_id' => $host->id,
+            'recipient_id' => $participant->id,
+            'status' => 'accepted',
+        ]);
+        $startsAt = now()->addDays(2);
+
+        $sessionId = $this->actingAs($host, 'sanctum')
+            ->postJson('/api/v1/sessions', [
+                'participant_user_id' => $participant->id,
+                'topic' => 'Study review',
+                'starts_at' => $startsAt->toIso8601String(),
+                'ends_at' => $startsAt->copy()->addHour()->toIso8601String(),
+                'location' => 'Library',
+            ])
+            ->assertCreated()
+            ->json('data.session.id');
+
+        $this->actingAs($participant, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$sessionId}", ['status' => 'confirmed'])
+            ->assertOk();
+
+        $updatedStartsAt = now()->addDays(3);
+        $this->actingAs($host, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$sessionId}", [
+                'topic' => 'Updated study review',
+                'starts_at' => $updatedStartsAt->toIso8601String(),
+                'ends_at' => $updatedStartsAt->copy()->addHour()->toIso8601String(),
+                'location' => 'Study hall',
+            ])
+            ->assertOk();
+
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $participant->id,
+            'type' => 'session_updated',
+            'title' => 'Study session updated',
+        ]);
+
+        $this->actingAs($participant, 'sanctum')
+            ->patchJson("/api/v1/sessions/{$sessionId}", ['status' => 'cancelled'])
+            ->assertOk();
+
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $host->id,
+            'type' => 'session_cancelled',
+            'title' => 'Study session cancelled',
         ]);
     }
 
