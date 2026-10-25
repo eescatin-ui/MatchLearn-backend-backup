@@ -175,4 +175,100 @@ class DirectMessageAuthorizationTest extends TestCase
             'content' => 'First attempt',
         ]);
     }
+
+    public function test_direct_messages_can_be_edited_deleted_and_replied_to_only_by_participants(): void
+    {
+        $first = User::factory()->create();
+        $second = User::factory()->create();
+        $outsider = User::factory()->create();
+        BuddyRequest::create([
+            'requester_id' => $first->id,
+            'recipient_id' => $second->id,
+            'status' => 'accepted',
+        ]);
+        $conversationId = $this->actingAs($first, 'sanctum')
+            ->postJson('/api/v1/messages/direct-conversations', ['matched_user_id' => $second->id])
+            ->assertCreated()
+            ->json('data.conversation.id');
+        $parentId = $this->actingAs($second, 'sanctum')
+            ->postJson("/api/v1/messages/direct-conversations/{$conversationId}", ['content' => 'Original'])
+            ->assertCreated()
+            ->json('data.message.id');
+        $messageId = $this->actingAs($first, 'sanctum')
+            ->postJson("/api/v1/messages/direct-conversations/{$conversationId}", [
+                'content' => 'Reply',
+                'reply_to_id' => $parentId,
+            ])
+            ->assertCreated()
+            ->json('data.message.id');
+
+        $this->actingAs($first, 'sanctum')
+            ->getJson("/api/v1/messages/direct-conversations/{$conversationId}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.1.reply_to.user_name', $second->name)
+            ->assertJsonPath('data.messages.1.reply_to.content', 'Original');
+
+        $this->actingAs($second, 'sanctum')
+            ->patchJson("/api/v1/messages/{$messageId}", ['content' => 'Unauthorized edit'])
+            ->assertForbidden();
+        $this->actingAs($outsider, 'sanctum')
+            ->patchJson("/api/v1/messages/{$messageId}", ['content' => 'Outsider edit'])
+            ->assertNotFound();
+
+        $this->actingAs($first, 'sanctum')
+            ->patchJson("/api/v1/messages/{$messageId}", ['content' => 'Edited reply'])
+            ->assertOk()
+            ->assertJsonPath('data.message.content', 'Edited reply');
+        $this->assertDatabaseHas('study_group_messages', [
+            'id' => $messageId,
+            'content' => 'Edited reply',
+        ]);
+        $editedMessages = $this->actingAs($first, 'sanctum')
+            ->getJson("/api/v1/messages/direct-conversations/{$conversationId}")
+            ->assertOk()
+            ->assertJsonPath('data.messages.1.content', 'Edited reply');
+        $this->assertIsString($editedMessages->json('data.messages.1.edited_at'));
+
+        $this->actingAs($first, 'sanctum')
+            ->deleteJson("/api/v1/messages/{$messageId}")
+            ->assertOk();
+        $this->assertDatabaseMissing('study_group_messages', ['id' => $messageId]);
+    }
+
+    public function test_group_message_replies_cannot_target_messages_from_another_group(): void
+    {
+        $firstMember = User::factory()->create();
+        $secondMember = User::factory()->create();
+        $firstGroupId = $this->actingAs($firstMember, 'sanctum')
+            ->postJson('/api/v1/groups', ['name' => 'First group', 'course' => 'IT 213'])
+            ->assertCreated()
+            ->json('data.group.id');
+        $secondGroupId = $this->actingAs($secondMember, 'sanctum')
+            ->postJson('/api/v1/groups', ['name' => 'Second group', 'course' => 'IT 214'])
+            ->assertCreated()
+            ->json('data.group.id');
+        $parentId = $this->actingAs($firstMember, 'sanctum')
+            ->postJson('/api/v1/messages', [
+                'group_id' => $firstGroupId,
+                'content' => 'Group-specific message',
+            ])
+            ->assertCreated()
+            ->json('data.message.id');
+        $this->actingAs($firstMember, 'sanctum')
+            ->patchJson("/api/v1/messages/{$parentId}", ['content' => 'Edited group message'])
+            ->assertOk()
+            ->assertJsonPath('data.message.content', 'Edited group message');
+        $this->actingAs($secondMember, 'sanctum')
+            ->patchJson("/api/v1/messages/{$parentId}", ['content' => 'Cross-group edit'])
+            ->assertNotFound();
+
+        $this->actingAs($secondMember, 'sanctum')
+            ->postJson('/api/v1/messages', [
+                'group_id' => $secondGroupId,
+                'content' => 'Invalid cross-group reply',
+                'reply_to_id' => $parentId,
+            ])
+            ->assertUnprocessable()
+            ->assertJsonPath('message', 'The reply target is not in this group.');
+    }
 }

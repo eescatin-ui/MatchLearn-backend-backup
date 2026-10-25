@@ -67,6 +67,7 @@ Route::prefix('v1')->group(function () {
             Route::post('/direct-conversations', [StudyMessageController::class, 'createDirectConversation']);
             Route::get('/direct-conversations/{id}', [StudyMessageController::class, 'showDirect']);
             Route::post('/direct-conversations/{id}', [StudyMessageController::class, 'storeDirect']);
+            Route::patch('/{id}', [StudyMessageController::class, 'update']);
             Route::get('/{id}', [StudyMessageController::class, 'show']);
             Route::delete('/{id}', [StudyMessageController::class, 'destroy']);
         });
@@ -91,6 +92,7 @@ Route::prefix('v1')->group(function () {
         Route::patch('sessions/{id}', [StudySessionController::class, 'update']);
         Route::delete('sessions/{id}', [StudySessionController::class, 'destroy']);
         Route::get('notifications', [ActivityNotificationController::class, 'index']);
+        Route::delete('notifications', [ActivityNotificationController::class, 'destroySelected']);
         Route::patch('notifications/read-all', [ActivityNotificationController::class, 'markAllRead']);
         Route::patch('notifications/{id}/read', [ActivityNotificationController::class, 'markRead']);
         Route::get('reviews', [StudySessionReviewController::class, 'index']);

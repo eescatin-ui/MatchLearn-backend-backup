@@ -63,6 +63,29 @@ class ActivityNotificationController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function destroySelected(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:100'],
+            'ids.*' => ['required', 'integer', 'distinct', 'min:1'],
+        ]);
+
+        ActivityNotification::query()
+            ->where('user_id', $request->user()->id)
+            ->whereIn('id', $validated['ids'])
+            ->delete();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'unread_count' => ActivityNotification::query()
+                    ->where('user_id', $request->user()->id)
+                    ->whereNull('read_at')
+                    ->count(),
+            ],
+        ]);
+    }
+
     private function createSessionReminders(Request $request, ActivityNotificationService $notifications): void
     {
         $userId = $request->user()->id;

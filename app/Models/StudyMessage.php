@@ -18,7 +18,16 @@ class StudyMessage extends Model
         'user_id',
         'client_message_id',
         'content',
+        'reply_to_id',
+        'edited_at',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'edited_at' => 'datetime',
+        ];
+    }
 
     public function group(): BelongsTo
     {
@@ -33,5 +42,10 @@ class StudyMessage extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function replyTo(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reply_to_id');
     }
 }

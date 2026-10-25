@@ -95,4 +95,29 @@ class ActivityNotificationTest extends TestCase
             ->assertOk();
         $this->assertDatabaseCount('activity_notifications', 2);
     }
+
+    public function test_user_can_delete_selected_notifications_without_deleting_another_users_items(): void
+    {
+        $user = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $notifications = app(ActivityNotificationService::class);
+        $notifications->send($user->id, 'own-unread', 'buddy_request', 'Request', 'A request.');
+        $notifications->send($user->id, 'own-read', 'session_invitation', 'Session', 'A session.');
+        $notifications->send($otherUser->id, 'other-unread', 'buddy_request', 'Request', 'Another request.');
+
+        $ownNotifications = ActivityNotification::query()->where('user_id', $user->id)->get();
+        $otherNotificationId = ActivityNotification::query()->where('user_id', $otherUser->id)->value('id');
+        $readNotification = $ownNotifications->firstWhere('event_key', 'own-read');
+        $readNotification->update(['read_at' => now()]);
+
+        $this->actingAs($user, 'sanctum')
+            ->deleteJson('/api/v1/notifications', [
+                'ids' => $ownNotifications->pluck('id')->all(),
+            ])
+            ->assertOk()
+            ->assertJsonPath('data.unread_count', 0);
+
+        $this->assertDatabaseMissing('activity_notifications', ['user_id' => $user->id]);
+        $this->assertDatabaseHas('activity_notifications', ['id' => $otherNotificationId, 'user_id' => $otherUser->id]);
+    }
 }

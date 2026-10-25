@@ -237,6 +237,7 @@ class StudyMessageController extends Controller
                     ->withAvg('buddyReviewsReceived', 'rating')
                     ->withCount('buddyReviewsReceived'),
                 'user.profile:id,user_id,profile_photo_url',
+                'replyTo.user:id,name',
             ])
             ->oldest()
             ->get();
@@ -251,6 +252,8 @@ class StudyMessageController extends Controller
                 'sender' => $message->user_id === $request->user()->id ? 'me' : 'them',
                 'content' => $message->content,
                 'created_at' => $message->created_at,
+                'edited_at' => $message->edited_at?->toIso8601String(),
+                'reply_to' => $this->replyPayload($message),
                 'user' => $message->user ? [
                     'id' => $message->user->id,
                     'name' => $message->user->name,
@@ -269,11 +272,16 @@ class StudyMessageController extends Controller
         $validated = $request->validate([
             'content' => ['required', 'string', 'max:2000'],
             'client_message_id' => ['nullable', 'string', 'max:64'],
+            'reply_to_id' => ['nullable', 'integer'],
         ]);
         $conversation = $this->findDirectConversation($request, $id);
+        if (! empty($validated['reply_to_id']) && ! $conversation->messages()->whereKey($validated['reply_to_id'])->exists()) {
+            return response()->json(['success' => false, 'message' => 'The reply target is not in this conversation.'], 422);
+        }
         $messageAttributes = [
             'user_id' => $request->user()->id,
             'content' => $validated['content'],
+            'reply_to_id' => $validated['reply_to_id'] ?? null,
         ];
         $message = isset($validated['client_message_id'])
             ? $conversation->messages()->firstOrCreate(
@@ -281,7 +289,10 @@ class StudyMessageController extends Controller
                     'user_id' => $request->user()->id,
                     'client_message_id' => $validated['client_message_id'],
                 ],
-                ['content' => $validated['content']]
+                [
+                    'content' => $validated['content'],
+                    'reply_to_id' => $validated['reply_to_id'] ?? null,
+                ]
             )
             : $conversation->messages()->create($messageAttributes);
         $conversation->touch();
@@ -306,6 +317,7 @@ class StudyMessageController extends Controller
             'group_id' => ['required', 'integer', 'exists:study_groups,id'],
             'content' => ['required', 'string', 'max:2000'],
             'client_message_id' => ['nullable', 'string', 'max:64'],
+            'reply_to_id' => ['nullable', 'integer'],
         ]);
 
         if ($validator->fails()) {
@@ -317,11 +329,15 @@ class StudyMessageController extends Controller
         }
 
         $group = $request->user()->studyGroups()->findOrFail($request->input('group_id'));
+        if ($request->filled('reply_to_id') && ! $group->messages()->whereKey($request->input('reply_to_id'))->exists()) {
+            return response()->json(['success' => false, 'message' => 'The reply target is not in this group.'], 422);
+        }
 
         $messageAttributes = [
             'group_id' => $group->id,
             'user_id' => $request->user()->id,
             'content' => $request->input('content'),
+            'reply_to_id' => $request->input('reply_to_id'),
         ];
         $message = $request->filled('client_message_id')
             ? StudyMessage::query()->firstOrCreate(
@@ -330,7 +346,10 @@ class StudyMessageController extends Controller
                     'user_id' => $request->user()->id,
                     'client_message_id' => $request->input('client_message_id'),
                 ],
-                ['content' => $request->input('content')]
+                [
+                    'content' => $request->input('content'),
+                    'reply_to_id' => $request->input('reply_to_id'),
+                ]
             )
             : StudyMessage::create($messageAttributes);
 
@@ -359,6 +378,7 @@ class StudyMessageController extends Controller
                     ->withAvg('buddyReviewsReceived', 'rating')
                     ->withCount('buddyReviewsReceived'),
                 'user.profile:id,user_id,profile_photo_url',
+                'replyTo.user:id,name',
             ])
             ->oldest()
             ->get();
@@ -375,6 +395,8 @@ class StudyMessageController extends Controller
                         'sender' => $message->user_id === $request->user()->id ? 'me' : 'them',
                         'content' => $message->content,
                         'created_at' => $message->created_at,
+                        'edited_at' => $message->edited_at?->toIso8601String(),
+                        'reply_to' => $this->replyPayload($message),
                         'user' => $message->user ? [
                             'id' => $message->user->id,
                             'name' => $message->user->name,
@@ -392,14 +414,7 @@ class StudyMessageController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $message = StudyMessage::where(function ($query) use ($request) {
-            $query->whereHas(
-                'group.members',
-                fn ($query) => $query->where('users.id', $request->user()->id)
-            )->orWhereHas('directConversation', fn ($conversation) => $conversation
-                ->where('user_one_id', $request->user()->id)
-                ->orWhere('user_two_id', $request->user()->id));
-        })->findOrFail($id);
+        $message = $this->findAuthorizedMessage($request, $id);
 
         if ($message->user_id !== $request->user()->id) {
             return response()->json([
@@ -414,6 +429,59 @@ class StudyMessageController extends Controller
             'success' => true,
             'message' => 'Message deleted successfully.',
         ]);
+    }
+
+    public function update(Request $request, int $id): JsonResponse
+    {
+        $validated = $request->validate([
+            'content' => ['required', 'string', 'max:2000'],
+        ]);
+        $message = $this->findAuthorizedMessage($request, $id);
+
+        if ($message->user_id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You are not allowed to edit this message.',
+            ], 403);
+        }
+
+        $message->update([
+            'content' => trim($validated['content']),
+            'edited_at' => now(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Message updated successfully.',
+            'data' => ['message' => [
+                'id' => $message->id,
+                'content' => $message->content,
+                'edited_at' => $message->edited_at?->toIso8601String(),
+            ]],
+        ]);
+    }
+
+    private function findAuthorizedMessage(Request $request, int $id): StudyMessage
+    {
+        return StudyMessage::query()->where(function ($query) use ($request): void {
+            $query->whereHas(
+                'group.members',
+                fn ($query) => $query->where('users.id', $request->user()->id)
+            )->orWhereHas('directConversation', fn ($conversation) => $conversation
+                ->where('user_one_id', $request->user()->id)
+                ->orWhere('user_two_id', $request->user()->id));
+        })->findOrFail($id);
+    }
+
+    private function replyPayload(StudyMessage $message): ?array
+    {
+        if (! $message->replyTo) return null;
+
+        return [
+            'id' => $message->replyTo->id,
+            'user_name' => $message->replyTo->user?->name ?? 'Message',
+            'content' => $message->replyTo->content,
+        ];
     }
 
     private function unreadMessageCount(
