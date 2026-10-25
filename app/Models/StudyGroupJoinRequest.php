@@ -10,6 +10,7 @@ class StudyGroupJoinRequest extends Model
     protected $fillable = [
         'study_group_id',
         'user_id',
+        'invited_by_user_id',
         'status',
     ];
 
@@ -21,5 +22,10 @@ class StudyGroupJoinRequest extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function invitedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'invited_by_user_id');
     }
 }

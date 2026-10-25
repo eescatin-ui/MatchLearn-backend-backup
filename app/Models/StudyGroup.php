@@ -51,4 +51,9 @@ class StudyGroup extends Model
     {
         return $this->hasMany(StudyGroupReview::class);
     }
+
+    public function sessions(): HasMany
+    {
+        return $this->hasMany(StudySession::class, 'study_group_id');
+    }
 }

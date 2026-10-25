@@ -52,6 +52,9 @@ Route::prefix('v1')->group(function () {
             Route::get('/{id}', [StudyGroupController::class, 'show']);
             Route::post('/{id}/reviews', [StudyGroupController::class, 'rate']);
             Route::post('/{id}/join', [StudyGroupController::class, 'join']);
+            Route::post('/{id}/invitations', [StudyGroupController::class, 'inviteBuddy']);
+            Route::patch('/{id}/invitations/{requestId}', [StudyGroupController::class, 'respondToInvitation']);
+            Route::delete('/{id}/join-requests', [StudyGroupController::class, 'cancelJoinRequest']);
             Route::patch('/{id}/join-requests/{requestId}', [StudyGroupController::class, 'respondToJoinRequest']);
             Route::delete('/{id}/leave', [StudyGroupController::class, 'leave']);
             Route::put('/{id}', [StudyGroupController::class, 'update']);

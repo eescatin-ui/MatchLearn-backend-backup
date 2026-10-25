@@ -3,9 +3,12 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\ActivityNotification;
+use App\Models\BuddyRequest;
 use App\Models\StudyGroup;
 use App\Models\StudyGroupJoinRequest;
 use App\Models\StudySession;
+use App\Models\UserBlock;
 use App\Models\User;
 use App\Services\ActivityNotificationService;
 use Illuminate\Http\JsonResponse;
@@ -96,7 +99,7 @@ class StudyGroupController extends Controller
             ->map(function (StudyGroup $group) use ($request, $user): array {
                 $joinRequest = $group->joinRequests()
                     ->where('user_id', $request->user()->id)
-                    ->where('status', 'pending')
+                    ->whereIn('status', ['pending', 'invited'])
                     ->first();
 
                 return [
@@ -117,7 +120,8 @@ class StudyGroupController extends Controller
                     'ratings_count' => $group->reviews_count,
                     'members' => $group->members_count,
                     'created_by' => $group->created_by,
-                    'request_status' => $joinRequest ? 'pending' : null,
+                    'request_status' => $joinRequest?->status,
+                    'request_id' => $joinRequest?->id,
                 ];
             })
             ->sortByDesc('compatibility_score')
@@ -195,7 +199,7 @@ class StudyGroupController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $group = $request->user()->studyGroups()
+        $group = StudyGroup::query()
             ->with([
                 'creator:id,name',
                 'members' => fn ($query) => $query
@@ -206,7 +210,15 @@ class StudyGroupController extends Controller
             ])
             ->with(['reviews' => fn ($query) => $query->with('reviewer:id,name')->latest()])
             ->withCount('members')
+            ->withCount(['sessions as total_sessions' => fn ($query) => $query
+                ->whereIn('status', ['confirmed', 'completed'])])
             ->findOrFail($id);
+        $userId = $request->user()->id;
+        $membership = $group->members->firstWhere('id', $userId);
+        $joinRequest = $group->joinRequests()
+            ->where('user_id', $userId)
+            ->whereIn('status', ['pending', 'invited'])
+            ->first();
 
         return response()->json([
             'success' => true,
@@ -224,7 +236,10 @@ class StudyGroupController extends Controller
                     'schedule' => $group->schedule,
                     'description' => $group->description,
                     'members' => $group->members()->count(),
-                    'role' => ucfirst($group->pivot->role),
+                    'total_sessions' => $group->total_sessions,
+                    'role' => $membership ? ucfirst($membership->pivot->role) : null,
+                    'request_status' => $joinRequest?->status,
+                    'request_id' => $joinRequest?->id,
                     'created_by' => $group->created_by,
                     'creator' => $group->creator ? [
                         'id' => $group->creator->id,
@@ -240,6 +255,9 @@ class StudyGroupController extends Controller
                         'ratings_count' => $member->buddy_reviews_received_count,
                         'role' => ucfirst($member->pivot->role),
                     ])->values(),
+                    'pending_invite_user_ids' => $group->created_by === $request->user()->id
+                        ? $group->joinRequests()->where('status', 'invited')->pluck('user_id')->values()
+                        : [],
                     'average_rating' => $group->reviews->isEmpty()
                         ? null
                         : round($group->reviews->avg('rating'), 1),
@@ -302,6 +320,12 @@ class StudyGroupController extends Controller
             'study_group_id' => $group->id,
             'user_id' => $request->user()->id,
         ]);
+        if ($joinRequest->exists && $joinRequest->status === 'invited') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Respond to your group invitation before requesting to join.',
+            ], 409);
+        }
         if ($joinRequest->exists && $joinRequest->status === 'pending') {
             return response()->json([
                 'success' => true,
@@ -330,6 +354,181 @@ class StudyGroupController extends Controller
                 'status' => 'pending',
             ],
         ], 201);
+    }
+
+    public function cancelJoinRequest(
+        Request $request,
+        int $id,
+        ActivityNotificationService $notifications
+    ): JsonResponse {
+        $joinRequest = StudyGroupJoinRequest::query()
+            ->where('study_group_id', $id)
+            ->where('user_id', $request->user()->id)
+            ->where('status', 'pending')
+            ->firstOrFail();
+        $group = $joinRequest->group;
+
+        DB::transaction(function () use ($joinRequest, $group, $request, $notifications): void {
+            $joinRequest->update(['status' => 'cancelled']);
+            ActivityNotification::query()
+                ->where('user_id', $group->created_by)
+                ->where('type', 'group_join_request')
+                ->where('data->request_id', $joinRequest->id)
+                ->update(['read_at' => now()]);
+            $notifications->send(
+                $group->created_by,
+                "group-join:{$joinRequest->id}:cancelled:".now()->format('Uu'),
+                'group_join_cancelled',
+                'Group join request cancelled',
+                "{$request->user()->name} cancelled their request to join {$group->name}.",
+                ['group_id' => $group->id, 'request_id' => $joinRequest->id]
+            );
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Your group join request was cancelled.',
+            'data' => ['status' => 'cancelled'],
+        ]);
+    }
+
+    public function inviteBuddy(Request $request, int $id, ActivityNotificationService $notifications): JsonResponse
+    {
+        $validated = $request->validate([
+            'user_id' => ['required', 'integer', 'exists:users,id'],
+        ]);
+        $group = StudyGroup::findOrFail($id);
+        if ($group->created_by !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only the group admin can invite a buddy.',
+            ], 403);
+        }
+
+        $inviteeId = (int) $validated['user_id'];
+        if ($inviteeId === $request->user()->id) {
+            return response()->json(['success' => false, 'message' => 'You cannot invite yourself.'], 422);
+        }
+        if (UserBlock::blocksEitherDirection($request->user()->id, $inviteeId)) {
+            return response()->json(['success' => false, 'message' => 'This buddy is unavailable to invite.'], 422);
+        }
+
+        $areBuddies = BuddyRequest::query()
+            ->where('status', 'accepted')
+            ->where(fn ($query) => $query
+                ->where(fn ($pair) => $pair->where('requester_id', $request->user()->id)->where('recipient_id', $inviteeId))
+                ->orWhere(fn ($pair) => $pair->where('requester_id', $inviteeId)->where('recipient_id', $request->user()->id)))
+            ->exists();
+        if (! $areBuddies) {
+            return response()->json(['success' => false, 'message' => 'You can only invite an accepted study buddy.'], 422);
+        }
+        if ($group->members()->where('users.id', $inviteeId)->exists()) {
+            return response()->json(['success' => false, 'message' => 'This buddy is already a group member.'], 409);
+        }
+
+        $joinRequest = StudyGroupJoinRequest::firstOrNew([
+            'study_group_id' => $group->id,
+            'user_id' => $inviteeId,
+        ]);
+        if ($joinRequest->exists && $joinRequest->status === 'invited') {
+            return response()->json([
+                'success' => true,
+                'message' => 'This buddy already has a pending invitation.',
+                'data' => ['request_id' => $joinRequest->id, 'status' => 'invited'],
+            ]);
+        }
+        if ($joinRequest->exists && $joinRequest->status === 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This buddy already has a pending request to join the group.',
+            ], 409);
+        }
+
+        $joinRequest->fill([
+            'invited_by_user_id' => $request->user()->id,
+            'status' => 'invited',
+        ]);
+        $joinRequest->save();
+        $notifications->send(
+            $inviteeId,
+            "group-invite:{$joinRequest->id}:".now()->format('Uu'),
+            'group_invitation',
+            'Study group invitation',
+            "{$request->user()->name} invited you to join {$group->name}.",
+            ['group_id' => $group->id, 'request_id' => $joinRequest->id]
+        );
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Group invitation sent.',
+            'data' => ['request_id' => $joinRequest->id, 'status' => 'invited'],
+        ], 201);
+    }
+
+    public function respondToInvitation(
+        Request $request,
+        int $id,
+        int $requestId,
+        ActivityNotificationService $notifications
+    ): JsonResponse {
+        $validated = $request->validate(['action' => ['required', 'in:accept,decline']]);
+        $group = StudyGroup::findOrFail($id);
+        $invitation = $group->joinRequests()
+            ->whereKey($requestId)
+            ->where('user_id', $request->user()->id)
+            ->where('status', 'invited')
+            ->first();
+        if (! $invitation) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Pending group invitation not found.',
+            ], 404);
+        }
+
+        $accepted = $validated['action'] === 'accept';
+        $inviteeId = $request->user()->id;
+        DB::transaction(function () use ($group, $invitation, $accepted, $inviteeId): void {
+            if ($accepted) {
+                $group->members()->syncWithoutDetaching([
+                    $invitation->user_id => ['role' => 'member'],
+                ]);
+                $invitation->update(['status' => 'accepted']);
+            } else {
+                $invitation->update(['status' => 'declined']);
+            }
+
+            ActivityNotification::query()
+                ->where('user_id', $inviteeId)
+                ->where('type', 'group_invitation')
+                ->where('data->request_id', $invitation->id)
+                ->update([
+                    'type' => $accepted ? 'group_invitation_accepted' : 'group_invitation_declined',
+                    'title' => $accepted ? 'Group invitation accepted' : 'Group invitation declined',
+                    'message' => $accepted
+                        ? "You accepted the invitation to join {$group->name}."
+                        : "You declined the invitation to join {$group->name}.",
+                    'read_at' => now(),
+                ]);
+        });
+
+        if ($invitation->invited_by_user_id !== null) {
+            $notifications->send(
+                $invitation->invited_by_user_id,
+                "group-invite:{$invitation->id}:{$validated['action']}:".now()->format('Uu'),
+                $accepted ? 'group_invitation_accepted' : 'group_invitation_declined',
+                $accepted ? 'Group invitation accepted' : 'Group invitation declined',
+                $accepted
+                    ? "{$request->user()->name} accepted your invitation to {$group->name}."
+                    : "{$request->user()->name} declined your invitation to {$group->name}.",
+                ['group_id' => $group->id, 'user_id' => $request->user()->id]
+            );
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => $validated['action'] === 'accept' ? 'Group invitation accepted.' : 'Group invitation declined.',
+            'data' => ['status' => $validated['action'] === 'accept' ? 'accepted' : 'declined'],
+        ]);
     }
 
     public function respondToJoinRequest(

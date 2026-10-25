@@ -116,6 +116,58 @@ class StudyGroupAuthorizationTest extends TestCase
         ]);
     }
 
+    public function test_pending_requester_can_view_group_details_and_cancel_their_request(): void
+    {
+        $owner = User::factory()->create();
+        $requester = User::factory()->create();
+        $groupId = $this->actingAs($owner, 'sanctum')->postJson('/api/v1/groups', [
+            'name' => 'Discoverable requested group',
+            'course' => 'Mathematics',
+        ])->assertCreated()->json('data.group.id');
+        $this->actingAs($requester, 'sanctum')
+            ->getJson("/api/v1/groups/{$groupId}")
+            ->assertOk()
+            ->assertJsonPath('data.group.request_status', null)
+            ->assertJsonPath('data.group.role', null);
+
+        $requestId = $this->actingAs($requester, 'sanctum')
+            ->postJson("/api/v1/groups/{$groupId}/join")
+            ->assertCreated()
+            ->json('data.request_id');
+
+        $this->actingAs($requester, 'sanctum')
+            ->getJson('/api/v1/groups/discover')
+            ->assertOk()
+            ->assertJsonPath('data.groups.0.request_status', 'pending')
+            ->assertJsonPath('data.groups.0.request_id', $requestId);
+        $this->actingAs($requester, 'sanctum')
+            ->getJson("/api/v1/groups/{$groupId}")
+            ->assertOk()
+            ->assertJsonPath('data.group.name', 'Discoverable requested group')
+            ->assertJsonPath('data.group.request_status', 'pending')
+            ->assertJsonPath('data.group.request_id', $requestId)
+            ->assertJsonPath('data.group.role', null);
+
+        $this->actingAs($requester, 'sanctum')
+            ->deleteJson("/api/v1/groups/{$groupId}/join-requests")
+            ->assertOk()
+            ->assertJsonPath('data.status', 'cancelled');
+
+        $this->assertDatabaseHas('study_group_join_requests', [
+            'id' => $requestId,
+            'status' => 'cancelled',
+        ]);
+        $this->assertDatabaseHas('activity_notifications', [
+            'user_id' => $owner->id,
+            'type' => 'group_join_cancelled',
+        ]);
+        $this->actingAs($requester, 'sanctum')
+            ->getJson("/api/v1/groups/{$groupId}")
+            ->assertOk()
+            ->assertJsonPath('data.group.request_status', null)
+            ->assertJsonPath('data.group.role', null);
+    }
+
     public function test_group_list_only_contains_groups_the_user_has_joined(): void
     {
         $owner = User::factory()->create();

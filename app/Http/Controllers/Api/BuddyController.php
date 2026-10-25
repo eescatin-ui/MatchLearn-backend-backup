@@ -100,6 +100,14 @@ class BuddyController extends Controller
             ->with(['profile.department', 'profile.program', 'profile.learningStyle', 'profile.studyCourses'])
             ->findOrFail($id);
         $profile = $buddy->profile;
+        $compatibilityScore = StudyMatch::query()
+            ->where('user_id', $userId)
+            ->where('matched_user_id', $id)
+            ->value('compatibility_score')
+            ?? StudyMatch::query()
+                ->where('user_id', $id)
+                ->where('matched_user_id', $userId)
+                ->value('compatibility_score');
 
         return response()->json([
             'success' => true,
@@ -107,6 +115,7 @@ class BuddyController extends Controller
                 'buddy' => [
                     'id' => $buddy->id,
                     'name' => $buddy->name,
+                    'compatibility_score' => $compatibilityScore,
                     'profile' => $profile ? [
                         'institution' => $profile->institution,
                         'gender' => $profile->gender,
