@@ -131,6 +131,19 @@ class AdminDashboardTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $student->id, 'is_suspended' => true]);
     }
 
+    public function test_admin_can_delete_a_student_account(): void
+    {
+        $admin = User::factory()->create(['is_admin' => true]);
+        $student = User::factory()->create();
+
+        $this->actingAs($admin)
+            ->deleteJson("/admin/api/users/{$student->id}")
+            ->assertOk()
+            ->assertJsonPath('message', 'Student account deleted.');
+
+        $this->assertDatabaseMissing('users', ['id' => $student->id]);
+    }
+
     public function test_admin_can_list_and_filter_study_groups_and_sessions(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);

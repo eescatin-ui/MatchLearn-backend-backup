@@ -274,6 +274,23 @@ async function setUserSuspended(user: ManagedUser): Promise<void> {
     }
 }
 
+async function deleteUser(user: ManagedUser): Promise<void> {
+    if (!window.confirm(`Delete ${user.name}’s account permanently? This action cannot be undone.`)) return;
+
+    pageError.value = '';
+    try {
+        await axios.delete(`/admin/api/users/${user.id}`);
+        showNotice('Student account deleted.');
+        await Promise.all([loadUsers(), loadAnalytics()]);
+        if (users.value && users.value.data.length === 0 && userPage.value > 1) {
+            userPage.value -= 1;
+            await loadUsers();
+        }
+    } catch (error) {
+        pageError.value = messageFrom(error);
+    }
+}
+
 async function updateReport(report: Report, status: 'reviewed' | 'dismissed'): Promise<void> {
     pageError.value = '';
     try {
@@ -622,7 +639,10 @@ onMounted(() => { void loadSection('overview'); });
                                     <td>{{ user.program || '—' }}</td>
                                     <td>{{ formatDate(user.created_at) }}</td>
                                     <td><span class="status-pill" :class="user.is_suspended ? 'status-suspended' : 'status-active'"><i></i>{{ user.is_suspended ? 'Suspended' : 'Active' }}</span></td>
-                                    <td class="action-column"><button class="table-action" :class="{ 'restore-action': user.is_suspended }" :disabled="user.is_admin" :title="user.is_admin ? 'Administrator accounts cannot be suspended here' : ''" @click="setUserSuspended(user)">{{ user.is_suspended ? 'Restore' : 'Suspend' }}</button></td>
+                                    <td class="action-column">
+                                        <button class="table-action" :class="{ 'restore-action': user.is_suspended }" :disabled="user.is_admin" :title="user.is_admin ? 'Administrator accounts cannot be suspended here' : ''" @click="setUserSuspended(user)">{{ user.is_suspended ? 'Restore' : 'Suspend' }}</button>
+                                        <button class="table-action" :disabled="user.is_admin" :title="user.is_admin ? 'Administrator accounts cannot be deleted here' : ''" @click="deleteUser(user)">Delete</button>
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>

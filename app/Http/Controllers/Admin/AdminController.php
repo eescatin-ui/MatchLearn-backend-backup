@@ -16,6 +16,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -176,6 +177,23 @@ class AdminController extends Controller
                 'id' => $user->id,
                 'is_suspended' => $user->is_suspended,
             ],
+        ]);
+    }
+
+    public function deleteUser(Request $request, int $userId): JsonResponse
+    {
+        $user = User::query()->findOrFail($userId);
+
+        abort_if($user->is_admin || $user->is($request->user()), 403, 'Administrator accounts cannot be deleted here.');
+
+        DB::transaction(function () use ($user): void {
+            $user->tokens()->delete();
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+            $user->delete();
+        });
+
+        return response()->json([
+            'message' => 'Student account deleted.',
         ]);
     }
 

@@ -21,6 +21,7 @@ Route::prefix('admin')->name('admin.')->group(function (): void {
             Route::get('/analytics', [AdminController::class, 'analytics'])->name('analytics');
             Route::get('/users', [AdminController::class, 'users'])->name('users');
             Route::patch('/users/{userId}/status', [AdminController::class, 'updateUserStatus'])->name('users.status');
+            Route::delete('/users/{userId}', [AdminController::class, 'deleteUser'])->name('users.delete');
             Route::get('/groups', [AdminController::class, 'groups'])->name('groups');
             Route::put('/groups/{groupId}', [AdminController::class, 'updateGroup'])->name('groups.update');
             Route::delete('/groups/{groupId}', [AdminController::class, 'deleteGroup'])->name('groups.delete');
