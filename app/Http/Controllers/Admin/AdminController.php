@@ -17,6 +17,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
 use RuntimeException;
@@ -227,6 +228,83 @@ class AdminController extends Controller
         DB::transaction(function () use ($user): void {
             $user->tokens()->delete();
             DB::table('sessions')->where('user_id', $user->id)->delete();
+
+            $deleteTargets = [
+                'profiles',
+                'user_courses',
+                'availabilities',
+                'user_strengths',
+                'user_weaknesses',
+                'matches',
+                'study_group_members',
+                'study_group_messages',
+                'direct_conversations',
+                'study_session_reviews',
+                'study_group_join_requests',
+                'study_group_reviews',
+                'buddy_requests',
+                'activity_notifications',
+                'conversation_read_states',
+                'buddy_reviews',
+                'user_reports',
+                'study_session_hides',
+                'user_blocks',
+                'study_sessions',
+                'study_groups',
+            ];
+
+            foreach ($deleteTargets as $table) {
+                if (! Schema::hasTable($table)) {
+                    continue;
+                }
+
+                match ($table) {
+                    'matches' => DB::table($table)
+                        ->where('user_id', $user->id)
+                        ->orWhere('matched_user_id', $user->id)
+                        ->delete(),
+                    'direct_conversations' => DB::table($table)
+                        ->where('user_one_id', $user->id)
+                        ->orWhere('user_two_id', $user->id)
+                        ->delete(),
+                    'study_sessions' => DB::table($table)
+                        ->where('host_user_id', $user->id)
+                        ->orWhere('participant_user_id', $user->id)
+                        ->delete(),
+                    'study_groups' => DB::table($table)
+                        ->where('created_by', $user->id)
+                        ->delete(),
+                    'study_session_reviews' => DB::table($table)
+                        ->where('reviewer_user_id', $user->id)
+                        ->orWhere('reviewed_user_id', $user->id)
+                        ->delete(),
+                    'study_group_join_requests' => DB::table($table)
+                        ->where('user_id', $user->id)
+                        ->orWhere('invited_by_user_id', $user->id)
+                        ->delete(),
+                    'study_group_reviews' => DB::table($table)
+                        ->where('reviewer_user_id', $user->id)
+                        ->delete(),
+                    'buddy_requests' => DB::table($table)
+                        ->where('requester_id', $user->id)
+                        ->orWhere('recipient_id', $user->id)
+                        ->delete(),
+                    'buddy_reviews' => DB::table($table)
+                        ->where('reviewer_user_id', $user->id)
+                        ->orWhere('reviewed_user_id', $user->id)
+                        ->delete(),
+                    'user_reports' => DB::table($table)
+                        ->where('reporter_user_id', $user->id)
+                        ->orWhere('reported_user_id', $user->id)
+                        ->delete(),
+                    'user_blocks' => DB::table($table)
+                        ->where('blocker_user_id', $user->id)
+                        ->orWhere('blocked_user_id', $user->id)
+                        ->delete(),
+                    default => DB::table($table)->where('user_id', $user->id)->delete(),
+                };
+            }
+
             $user->delete();
         });
 

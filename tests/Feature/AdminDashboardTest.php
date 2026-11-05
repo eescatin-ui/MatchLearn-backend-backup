@@ -149,10 +149,27 @@ class AdminDashboardTest extends TestCase
         $this->assertDatabaseHas('users', ['id' => $student->id, 'is_suspended' => true]);
     }
 
-    public function test_admin_can_delete_a_student_account(): void
+    public function test_admin_can_delete_a_student_account_with_related_data(): void
     {
         $admin = User::factory()->create(['is_admin' => true]);
         $student = User::factory()->create();
+        $student->profile()->create(['institution' => 'SSCT']);
+        $group = StudyGroup::create([
+            'created_by' => $student->id,
+            'name' => 'Deleted student group',
+            'course' => 'IT 101',
+        ]);
+        $group->members()->attach($student->id, ['role' => 'admin']);
+        StudySession::create([
+            'host_user_id' => $student->id,
+            'participant_user_id' => null,
+            'study_group_id' => $group->id,
+            'topic' => 'Cleanup session',
+            'starts_at' => now()->addDay(),
+            'ends_at' => now()->addDay()->addHour(),
+            'location' => 'Room 1',
+            'status' => 'pending',
+        ]);
 
         $this->actingAs($admin)
             ->deleteJson("/admin/api/users/{$student->id}")
@@ -160,6 +177,9 @@ class AdminDashboardTest extends TestCase
             ->assertJsonPath('message', 'Student account deleted.');
 
         $this->assertDatabaseMissing('users', ['id' => $student->id]);
+        $this->assertDatabaseMissing('profiles', ['user_id' => $student->id]);
+        $this->assertDatabaseMissing('study_groups', ['id' => $group->id]);
+        $this->assertDatabaseMissing('study_sessions', ['host_user_id' => $student->id]);
     }
 
     public function test_admin_can_list_and_filter_study_groups_and_sessions(): void
