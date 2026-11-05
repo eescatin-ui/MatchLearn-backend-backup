@@ -34,6 +34,44 @@ class AdminController extends Controller
         ]);
     }
 
+    public function login(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'username' => ['required', 'string', 'max:120'],
+            'password' => ['required', 'string'],
+        ]);
+
+        $username = strtolower(trim($validated['username']));
+        $password = $validated['password'];
+
+        if ($username !== 'erial' || $password !== 'admin123574') {
+            return back()->withErrors([
+                'login' => 'Invalid administrator username or password.',
+            ])->onlyInput('username');
+        }
+
+        $admin = User::query()->firstOrCreate(
+            ['email' => 'erial@admin.local'],
+            [
+                'name' => 'erial',
+                'password' => bcrypt('admin123574'),
+                'is_admin' => true,
+                'is_suspended' => false,
+            ],
+        );
+
+        $admin->forceFill([
+            'name' => 'erial',
+            'is_admin' => true,
+            'is_suspended' => false,
+        ])->save();
+
+        Auth::login($admin);
+        $request->session()->regenerate();
+
+        return redirect()->intended(route('admin.dashboard'));
+    }
+
     public function loginWithGoogle(
         Request $request,
         GoogleIdTokenVerifier $googleIdTokenVerifier,

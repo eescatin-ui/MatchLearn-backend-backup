@@ -9,12 +9,30 @@ use App\Models\StudySession;
 use App\Models\UserReport;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class AdminDashboardTest extends TestCase
 {
     use RefreshDatabase;
+
+    public function test_admin_can_sign_in_with_username_and_password(): void
+    {
+        $this->get('/admin/login')
+            ->assertOk()
+            ->assertSee('Username', false)
+            ->assertSee('Password', false)
+            ->assertDontSee('Sign in with Google', false);
+
+        $this->post('/admin/login', [
+            'username' => 'erial',
+            'password' => 'admin123574',
+        ])->assertRedirect('/admin');
+
+        $this->assertTrue(Auth::check());
+        $this->assertTrue(Auth::user()?->is_admin);
+    }
 
     public function test_admin_can_sign_in_with_verified_institutional_google_account(): void
     {

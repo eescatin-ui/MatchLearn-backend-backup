@@ -15,70 +15,23 @@
         </a>
         <p class="eyebrow">ADMINISTRATION</p>
         <h1>Welcome back</h1>
-        <p class="login-intro">Enter your full name and continue with your authorized SSCT or SNSU administrator Google account.</p>
+        <p class="login-intro">Use your administrator credentials to access the MatchLearn admin dashboard.</p>
 
         @if ($errors->any())
             <div class="login-error" role="alert">{{ $errors->first() }}</div>
         @endif
 
-        <form method="POST" action="{{ route('admin.login.google') }}" class="login-form" id="admin-google-login">
+        <form method="POST" action="{{ route('admin.login.submit') }}" class="login-form" id="admin-login-form">
             @csrf
-            <label for="full_name">Full name</label>
-            <input id="full_name" name="name" type="text" value="{{ old('name') }}" autocomplete="name" maxlength="120" required autofocus>
-            <input id="google_id_token" name="id_token" type="hidden">
-            @if ($googleClientId)
-                <div id="google-sign-in-button" class="admin-google-button" aria-label="Sign in with Google"></div>
-                <p id="google-name-hint" class="login-footnote">Enter your full name to enable Google sign-in.</p>
-            @else
-                <p class="login-error" role="alert">Google sign-in is not configured on the server. Contact your administrator.</p>
-            @endif
+            <label for="admin_username">Username</label>
+            <input id="admin_username" name="username" type="text" value="{{ old('username', 'erial') }}" autocomplete="username" maxlength="120" required autofocus>
+
+            <label for="admin_password">Password</label>
+            <input id="admin_password" name="password" type="password" value="" autocomplete="current-password" required>
+
+            <button class="button button-primary login-submit" type="submit">Sign in</button>
         </form>
         <p class="login-footnote">Administrator access is managed by your system administrator.</p>
     </main>
-    @if ($googleClientId)
-        <script>
-            const adminLoginForm = document.getElementById('admin-google-login');
-            const fullNameInput = document.getElementById('full_name');
-            const googleButton = document.getElementById('google-sign-in-button');
-            const googleNameHint = document.getElementById('google-name-hint');
-            let googleApiReady = false;
-
-            const updateGoogleButtonState = () => {
-                const hasName = fullNameInput.value.trim().length >= 2;
-                googleButton.classList.toggle('is-disabled', !hasName || !googleApiReady);
-                googleButton.setAttribute('aria-disabled', String(!hasName || !googleApiReady));
-                googleNameHint.hidden = hasName;
-            };
-
-            window.initializeGoogleSignIn = () => {
-                googleApiReady = true;
-                google.accounts.id.initialize({
-                    client_id: @json($googleClientId),
-                    callback: ({ credential }) => {
-                        document.getElementById('google_id_token').value = credential;
-                        adminLoginForm.submit();
-                    },
-                });
-                google.accounts.id.renderButton(googleButton, {
-                    type: 'standard',
-                    theme: 'outline',
-                    size: 'large',
-                    text: 'signin_with',
-                    shape: 'rectangular',
-                    width: Math.min(360, Math.floor(googleButton.clientWidth)),
-                });
-                updateGoogleButtonState();
-            };
-
-            fullNameInput.addEventListener('input', updateGoogleButtonState);
-            googleButton.addEventListener('click', (event) => {
-                if (googleButton.getAttribute('aria-disabled') === 'true') {
-                    event.preventDefault();
-                    event.stopPropagation();
-                }
-            }, true);
-        </script>
-        <script src="https://accounts.google.com/gsi/client" async onload="initializeGoogleSignIn()"></script>
-    @endif
 </body>
 </html>
