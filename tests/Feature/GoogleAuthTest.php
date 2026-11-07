@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\BuddyReview;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -78,6 +79,52 @@ class GoogleAuthTest extends TestCase
             ->getJson('/api/v1/auth/me')
             ->assertOk()
             ->assertJsonPath('data.user.email', 'student@snsu.edu.ph');
+    }
+
+    public function test_user_rating_average_is_numeric_on_login_and_auth_refresh(): void
+    {
+        $user = User::factory()->create([
+            'email' => 'rated@ssct.edu.ph',
+            'name' => 'Rated Student',
+        ]);
+        BuddyReview::create([
+            'reviewer_user_id' => User::factory()->create()->id,
+            'reviewed_user_id' => $user->id,
+            'rating' => 4,
+        ]);
+        BuddyReview::create([
+            'reviewer_user_id' => User::factory()->create()->id,
+            'reviewed_user_id' => $user->id,
+            'rating' => 5,
+        ]);
+
+        Http::fake([
+            'https://oauth2.googleapis.com/tokeninfo*' => Http::response([
+                'aud' => 'matchlearn-web-client',
+                'iss' => 'https://accounts.google.com',
+                'exp' => (string) now()->addMinutes(5)->timestamp,
+                'email' => $user->email,
+                'email_verified' => true,
+                'sub' => 'google-rated-user',
+                'name' => $user->name,
+            ]),
+        ]);
+
+        $login = $this->postJson('/api/v1/auth/google', [
+            'id_token' => 'google-id-token',
+        ])
+            ->assertOk()
+            ->assertJsonPath('data.user.average_rating', 4.5)
+            ->assertJsonPath('data.user.ratings_count', 2);
+
+        $me = $this->withToken($login->json('data.token'))
+            ->getJson('/api/v1/auth/me')
+            ->assertOk()
+            ->assertJsonPath('data.user.average_rating', 4.5)
+            ->assertJsonPath('data.user.ratings_count', 2);
+
+        $this->assertIsFloat($login->json('data.user.average_rating'));
+        $this->assertIsFloat($me->json('data.user.average_rating'));
     }
 
     public function test_google_sign_in_rejects_gmail_accounts(): void

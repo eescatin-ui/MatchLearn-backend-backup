@@ -9,12 +9,14 @@ class UserResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $averageRating = $this->buddyReviewsReceived()->avg('rating');
+
         return [
             'id' => $this->id,
             'name' => $this->name,
             'email' => $this->email,
             'is_suspended' => $this->is_suspended,
-            'average_rating' => $this->buddyReviewsReceived()->avg('rating'),
+            'average_rating' => $averageRating === null ? null : round((float) $averageRating, 1),
             'ratings_count' => $this->buddyReviewsReceived()->count(),
             'profile_photo_url' => $this->relationLoaded('profile')
                 ? $this->getRelation('profile')?->profile_photo_url
