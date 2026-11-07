@@ -136,4 +136,39 @@ class ProfileStudyPreferencesTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['study_courses.1.course_code']);
     }
+
+    public function test_user_cannot_save_a_topic_as_both_a_strength_and_weakness(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/profiles', [
+                'institution' => 'SNSU',
+                'academic_strengths' => ['Programming'],
+                'academic_needs' => [' programming '],
+            ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['academic_needs.0']);
+    }
+
+    public function test_profile_updates_cannot_add_a_topic_that_is_already_in_the_other_list(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $user = User::factory()->create();
+
+        $this->actingAs($user, 'sanctum')
+            ->postJson('/api/v1/profiles', [
+                'institution' => 'SNSU',
+                'academic_strengths' => ['Database'],
+                'academic_needs' => ['Programming'],
+            ])
+            ->assertCreated();
+
+        $this->putJson('/api/v1/profiles', [
+            'academic_needs' => [' database '],
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['academic_needs.0']);
+    }
 }

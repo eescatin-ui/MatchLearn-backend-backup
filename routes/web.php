@@ -10,9 +10,6 @@ Route::get('/', function () {
 Route::prefix('admin')->name('admin.')->group(function (): void {
     Route::get('/login', [AdminController::class, 'showLogin'])->name('login');
     Route::post('/login', [AdminController::class, 'login'])->middleware('throttle:10,1')->name('login.submit');
-    Route::post('/google', [AdminController::class, 'loginWithGoogle'])
-        ->middleware('throttle:10,1')
-        ->name('login.google');
 
     Route::middleware(['auth', 'admin'])->group(function (): void {
         Route::post('/logout', [AdminController::class, 'logout'])->name('logout');

@@ -8,6 +8,8 @@ use Illuminate\Validation\Validator;
 
 class UpdateProfileRequest extends FormRequest
 {
+    use ValidatesDistinctStudyTopics;
+
     public function authorize(): bool
     {
         return true;
@@ -60,6 +62,8 @@ class UpdateProfileRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator): void {
+            $this->validateDistinctStudyTopics($validator);
+
             $courses = $this->input('study_courses', []);
             if (! is_array($courses)) {
                 return;

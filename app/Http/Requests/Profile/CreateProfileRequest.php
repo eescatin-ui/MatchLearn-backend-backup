@@ -7,6 +7,8 @@ use Illuminate\Validation\Validator;
 
 class CreateProfileRequest extends FormRequest
 {
+    use ValidatesDistinctStudyTopics;
+
     public function authorize(): bool
     {
         return true;
@@ -54,6 +56,7 @@ class CreateProfileRequest extends FormRequest
     {
         $validator->after(function (Validator $validator): void {
             $this->validateUniqueCourseCodes($validator);
+            $this->validateDistinctStudyTopics($validator);
         });
     }
 

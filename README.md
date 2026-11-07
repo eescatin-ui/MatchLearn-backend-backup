@@ -34,7 +34,7 @@ The included Blueprint uses Render's free web-service plan for testing. Free web
 
 ### Administrator sign-in
 
-The admin dashboard uses Google sign-in and accepts only verified `@ssct.edu.ph` or `@snsu.edu.ph` accounts already marked as administrators. Configure `GOOGLE_WEB_CLIENT_ID` on the backend to the same Google OAuth web client used by the mobile app. The account's `is_admin` permission must be granted by an administrator before it can sign in; the login page never grants admin access or creates accounts.
+The admin dashboard uses a username and password sign-in. Google sign-in remains available to the mobile app through its API endpoint; `GOOGLE_WEB_CLIENT_ID` is retained for mobile token verification.
 
 ## Learning Laravel
 
