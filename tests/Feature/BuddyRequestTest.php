@@ -9,6 +9,7 @@ use App\Models\LearningStyle;
 use App\Models\Profile;
 use App\Models\Program;
 use App\Models\StudyMatch;
+use App\Models\StudySession;
 use App\Models\User;
 use App\Services\MatchingService;
 use Database\Seeders\DatabaseSeeder;
@@ -151,6 +152,41 @@ class BuddyRequestTest extends TestCase
             ->assertForbidden();
 
         $this->assertDatabaseCount('buddy_requests', 0);
+    }
+
+    public function test_buddy_profile_counts_confirmed_and_completed_pair_sessions(): void
+    {
+        $user = User::factory()->create();
+        $buddy = User::factory()->create();
+        $otherUser = User::factory()->create();
+        BuddyRequest::create([
+            'requester_id' => $user->id,
+            'recipient_id' => $buddy->id,
+            'status' => 'accepted',
+        ]);
+
+        foreach ([
+            ['host' => $user->id, 'participant' => $buddy->id, 'status' => 'confirmed'],
+            ['host' => $buddy->id, 'participant' => $user->id, 'status' => 'completed'],
+            ['host' => $user->id, 'participant' => $buddy->id, 'status' => 'pending'],
+            ['host' => $user->id, 'participant' => $buddy->id, 'status' => 'cancelled'],
+            ['host' => $user->id, 'participant' => $otherUser->id, 'status' => 'completed'],
+        ] as $sessionData) {
+            StudySession::create([
+                'host_user_id' => $sessionData['host'],
+                'participant_user_id' => $sessionData['participant'],
+                'topic' => 'Study session',
+                'starts_at' => now(),
+                'ends_at' => now()->addHour(),
+                'location' => 'Library',
+                'status' => $sessionData['status'],
+            ]);
+        }
+
+        $this->actingAs($user, 'sanctum')
+            ->getJson("/api/v1/buddies/{$buddy->id}")
+            ->assertOk()
+            ->assertJsonPath('data.buddy.total_sessions', 2);
     }
 
     public function test_only_recipient_can_accept_or_decline_a_request(): void

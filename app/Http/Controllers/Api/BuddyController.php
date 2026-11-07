@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BuddyRequest;
 use App\Models\StudyMatch;
+use App\Models\StudySession;
 use App\Models\User;
 use App\Models\UserBlock;
 use App\Services\ActivityNotificationService;
@@ -108,6 +109,13 @@ class BuddyController extends Controller
                 ->where('user_id', $id)
                 ->where('matched_user_id', $userId)
                 ->value('compatibility_score');
+        $totalSessions = StudySession::query()
+            ->whereIn('status', ['confirmed', 'completed'])
+            ->whereNull('study_group_id')
+            ->where(fn ($query) => $query
+                ->where(fn ($pair) => $pair->where('host_user_id', $userId)->where('participant_user_id', $id))
+                ->orWhere(fn ($pair) => $pair->where('host_user_id', $id)->where('participant_user_id', $userId)))
+            ->count();
 
         return response()->json([
             'success' => true,
@@ -116,6 +124,7 @@ class BuddyController extends Controller
                     'id' => $buddy->id,
                     'name' => $buddy->name,
                     'compatibility_score' => $compatibilityScore,
+                    'total_sessions' => $totalSessions,
                     'profile' => $profile ? [
                         'institution' => $profile->institution,
                         'gender' => $profile->gender,
